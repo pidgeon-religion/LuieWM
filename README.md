@@ -6,6 +6,7 @@ How to run
 Open a bare tty, cd into the directory where the main.lua file is, and run
 luajit main.lua
 running on a tty with another wayland compositor active will cause most inputs within apps not to work
+
 it requires luajit, wl-roots-0.20, wayland, xkbcommon, libdrm, pixman, EGL/GLESv2 (only tests have been on arch, other distros will prolly work)
 Flags
 -s runs a startup command after WAYLAND_DISPLAY is set
@@ -18,4 +19,5 @@ constant crashes/freezes
 No xwayland, screencopy etc
 
 bro i hate readmes so damn much
+
 hi yracil if youre reading this
