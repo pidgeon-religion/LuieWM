@@ -8,8 +8,11 @@ luajit main.lua
 running on a tty with another wayland compositor active will cause most inputs within apps not to work
 
 it requires luajit, wl-roots-0.20, wayland, xkbcommon, libdrm, pixman, EGL/GLESv2 (only tests have been on arch, other distros will prolly work)
+
 Flags
+
 -s runs a startup command after WAYLAND_DISPLAY is set
+
 -d toggles debug logging
 
 Problems
