@@ -72,7 +72,7 @@ function M.list_remove(elm)
     elm.next = nil
 end
 
---- wl_list_empty: check if list has no elements
+-- wl_list_empty: check if list has no elements
 function M.list_empty(list)
     return list.next == list
 end
@@ -115,7 +115,7 @@ function M.signal_remove(listener)
     ffi.C.wl_list_remove(listener.link)
 end
 
---- Helper to create a float[4] color array
+-- helper to create a float[4] color array
 function M.color(r, g, b, a)
     return ffi.new("float[4]", { r, g, b, a or 1.0 })
 end

@@ -57,6 +57,8 @@ void wl_event_loop_destroy(struct wl_event_loop *loop);
 int wl_event_loop_dispatch(struct wl_event_loop *loop, int timeout);
 struct wl_event_source *wl_event_loop_add_fd(struct wl_event_loop *loop,
     int fd, uint32_t mask, wl_notify_func_t func, void *data);
+struct wl_event_source *wl_event_loop_add_idle(struct wl_event_loop *loop,
+    wl_notify_func_t func, void *data);
 
 /* wl_global functions */
 void wl_global_destroy(struct wl_global *global);

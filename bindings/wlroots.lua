@@ -177,6 +177,10 @@ void wlr_output_layout_remove(struct wlr_output_layout *layout, struct wlr_outpu
 void wlr_output_layout_get_box(struct wlr_output_layout *layout, struct wlr_output *reference, struct wlr_box *dest_box);
 struct wlr_output *wlr_output_layout_output_at(struct wlr_output_layout *layout, double lx, double ly);
 
+/* ---- wlr/types/wlr_xdg_output_v1.h ---- */
+struct wlr_xdg_output_manager_v1 *wlr_xdg_output_manager_v1_create(
+    struct wl_display *display, struct wlr_output_layout *layout);
+
 /* ---- wlr/util/box.h ---- */
 struct wlr_box {
     int x, y;

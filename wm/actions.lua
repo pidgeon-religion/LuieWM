@@ -53,8 +53,7 @@ function Actions.toggle_fullscreen(server)
         end
     else
         C.wlr_xdg_toplevel_set_fullscreen(focused.xdg_toplevel, false)
-        local surface = require("compositor.surface")
-        surface._apply_layout(server)
+        server:_schedule_layout()
     end
 end
 
@@ -71,8 +70,7 @@ function Actions.toggle_float(server)
             focused:set_position(cx, cy, focused.width, focused.height)
         end
     else
-        local surface = require("compositor.surface")
-        surface._apply_layout(server)
+        server:_schedule_layout()
     end
 end
 
@@ -80,8 +78,7 @@ function Actions.swap_next(server)
     if server.dwindle then
         local swapped = server.dwindle:swap_focused_with_next()
         if swapped then
-            local surface = require("compositor.surface")
-            surface._apply_layout(server)
+            server:_schedule_layout()
         end
     end
 end
@@ -96,8 +93,7 @@ function Actions.resize_ratio(server, delta)
     local parent = server.dwindle:find_parent(server.dwindle.root, node)
     if parent and parent.children then
         parent.ratio = math.max(0.2, math.min(0.8, parent.ratio + delta))
-        local surface = require("compositor.surface")
-        surface._apply_layout(server)
+        server:_schedule_layout()
     end
 end
 

@@ -24,6 +24,8 @@ function Dwindle.new(config)
     self.root = new_node()
     self.focused_node = nil
     self.views = {}
+    self.pending_layout = false
+    self.layout_params = nil
     return self
 end
 
@@ -218,7 +220,19 @@ end
 
 function Dwindle:layout(x, y, w, h, tag)
     if not self.root then return end
-    self:layout_node(self.root, x, y, w, h, tag)
+    self.layout_params = {x, y, w, h, tag}
+    self.pending_layout = true
+    log.debug("dwindle: layout scheduled %dx%d tag=%d", w, h, tag)
+end
+
+function Dwindle:apply_pending_layout()
+    if self.pending_layout and self.layout_params then
+        if self.root then
+            self:layout_node(self.root, unpack(self.layout_params))
+        end
+        self.pending_layout = false
+        self.layout_params = nil
+    end
 end
 
 function Dwindle:layout_node(node, x, y, w, h, tag)

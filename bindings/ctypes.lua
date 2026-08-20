@@ -41,9 +41,9 @@ pcall(ffi.cdef, [[
 -- wayland proto enums (not defined in other binding file)
 pcall(ffi.cdef, [[
     enum wl_seat_capability {
-        WL_SEAT_CAPABILITY_POINTER = 2,
-        WL_SEAT_CAPABILITY_KEYBOARD = 4,
-        WL_SEAT_CAPABILITY_TOUCH = 8,
+        WL_SEAT_CAPABILITY_POINTER = 1,
+        WL_SEAT_CAPABILITY_KEYBOARD = 2,
+        WL_SEAT_CAPABILITY_TOUCH = 4,
     };
 
     enum wl_keyboard_key_state {
@@ -91,6 +91,19 @@ pcall(ffi.cdef, [[
         WL_OUTPUT_SUBPIXEL_HORIZONTAL_BGR = 3,
         WL_OUTPUT_SUBPIXEL_VERTICAL_RGB = 4,
         WL_OUTPUT_SUBPIXEL_VERTICAL_BGR = 5,
+    };
+
+    enum zwlr_layer_shell_v1_layer {
+        ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND = 0,
+        ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM = 1,
+        ZWLR_LAYER_SHELL_V1_LAYER_TOP = 2,
+        ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY = 3,
+    };
+
+    enum zwlr_layer_surface_v1_keyboard_interactivity {
+        ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE = 0,
+        ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE = 1,
+        ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND = 2,
     };
 ]])
 

@@ -190,9 +190,11 @@ function Input._on_cursor_motion(server, event)
     local surface, sx, sy = get_scene_surface_at(server, server.cursor.x, server.cursor.y)
 
     if surface ~= nil then
+        log.debug("pointer: enter surface=%p at %.0f,%.0f", surface, sx, sy)
         C.wlr_seat_pointer_notify_enter(server.seat, surface, sx, sy)
         C.wlr_seat_pointer_notify_motion(server.seat, msec, sx, sy)
     else
+        log.debug("pointer: clear focus")
         C.wlr_seat_pointer_notify_clear_focus(server.seat)
     end
 end

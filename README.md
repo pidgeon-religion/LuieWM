@@ -15,7 +15,7 @@ Problems
 
 Nested wayland (named above)
 constant crashes/freezes
-No layer-shell, xwayland, screencopy etc
+No xwayland, screencopy etc
 
 bro i hate readmes so damn much
 hi yracil if youre reading this

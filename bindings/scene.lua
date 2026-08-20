@@ -119,6 +119,13 @@ struct wlr_scene_output *wlr_scene_get_scene_output(struct wlr_scene *scene, str
 struct wlr_scene_output_layout *wlr_scene_attach_output_layout(struct wlr_scene *scene, struct wlr_output_layout *output_layout);
 
 /* Scene layer surface */
+struct wlr_scene_layer_surface_v1 *wlr_scene_layer_surface_v1_create(
+    struct wlr_scene_tree *parent, struct wlr_layer_surface_v1 *layer_surface);
+void wlr_scene_layer_surface_v1_configure(
+    struct wlr_scene_layer_surface_v1 *scene_layer_surface,
+    const struct wlr_box *full_area, struct wlr_box *usable_area);
+
+/* Scene subsurface tree */
 struct wlr_scene_tree *wlr_scene_subsurface_tree_create(struct wlr_scene_tree *parent, struct wlr_surface *surface);
 ]]
 

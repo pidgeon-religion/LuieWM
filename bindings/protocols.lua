@@ -27,6 +27,7 @@ struct wlr_surface {
         struct wl_signal unmap;
         struct wl_signal new_subsurface;
         struct wl_signal destroy;
+        struct wl_signal frame;
     } events;
 };
 
@@ -85,6 +86,56 @@ struct wlr_foreign_toplevel_manager_v1 *wlr_foreign_toplevel_manager_v1_create(s
 
 /* ---- wlr/single_pixel_buffer_v1.h ---- */
 struct wlr_single_pixel_buffer_manager_v1 *wlr_single_pixel_buffer_manager_v1_create(struct wl_display *display);
+
+/* ---- wlr/xdg_decoration_v1.h ---- */
+struct wlr_xdg_decoration_manager_v1 *wlr_xdg_decoration_manager_v1_create(struct wl_display *display);
+
+/* ---- wlr/xdg_activation_v1.h ---- */
+struct wlr_xdg_activation_v1 *wlr_xdg_activation_v1_create(struct wl_display *display);
+
+/* ---- wlr/text_input_v3.h ---- */
+struct wlr_text_input_manager_v3 *wlr_text_input_manager_v3_create(struct wl_display *display);
+
+/* ---- wlr/data_control_v1.h ---- */
+struct wlr_data_control_manager_v1 *wlr_data_control_manager_v1_create(struct wl_display *display);
+
+/* ---- wlr/layer_shell_v1.h ---- */
+struct wlr_layer_surface_v1_state {
+    uint32_t committed;
+    uint32_t anchor;
+    int32_t exclusive_zone;
+    struct { int32_t top, right, bottom, left; } margin;
+    uint32_t keyboard_interactive;
+    uint32_t desired_width, desired_height;
+    uint32_t layer;
+    uint32_t exclusive_edge;
+    uint32_t configure_serial;
+    uint32_t actual_width, actual_height;
+};
+
+struct wlr_layer_surface_v1 {
+    struct wlr_surface *surface;
+    struct wlr_output *output;
+    struct wl_resource *resource;
+    void *shell;
+    struct wl_list popups;
+    char *namespace;
+    bool configured;
+    struct wl_list configure_list;
+    struct wlr_layer_surface_v1_state current, pending;
+    bool initialized;
+    bool initial_commit;
+    struct { struct wl_signal destroy; struct wl_signal new_popup; } events;
+    void *data;
+};
+
+struct wlr_layer_shell_v1 *wlr_layer_shell_v1_create(struct wl_display *display, uint32_t version);
+uint32_t wlr_layer_surface_v1_configure(struct wlr_layer_surface_v1 *surface, uint32_t width, uint32_t height);
+void wlr_layer_surface_v1_destroy(struct wlr_layer_surface_v1 *surface);
+struct wlr_layer_surface_v1 *wlr_layer_surface_v1_try_from_wlr_surface(struct wlr_surface *surface);
+
+/* ---- wlr/server_decoration.h ---- */
+struct wlr_server_decoration_manager *wlr_server_decoration_manager_create(struct wl_display *display);
 ]]
 
 return {}
