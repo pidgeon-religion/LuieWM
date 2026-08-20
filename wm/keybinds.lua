@@ -106,6 +106,13 @@ function Keybinds.handle(server, sym)
         return true
     end
 
+    -- super+shift+1..5: move view to tag
+    if mod_shift and sym >= SYM_1 and sym <= SYM_5 then
+        local tag = sym - SYM_1 + 1
+        Actions.move_to_tag(server, tag)
+        return true
+    end
+
     -- super+1..5: switch tag
     if sym >= SYM_1 and sym <= SYM_5 then
         local tag = sym - SYM_1 + 1
@@ -117,9 +124,23 @@ function Keybinds.handle(server, sym)
 end
 
 function Keybinds.switch_tag(server, tag)
-    server.current_tag = tag
-    log.debug("switched to tag %d", tag)
-    server:_schedule_layout()
+	if tag == server.current_tag then return end
+
+	-- unfocus the current view if it won't be visible on the new tag
+	local focused = server:get_focused_view()
+	if focused then
+		local on_new_tag = false
+		for t, _ in pairs(focused.tags) do
+			if t == tag then on_new_tag = true; break end
+		end
+		if not on_new_tag then
+			server:focus_view(nil)
+		end
+	end
+
+	server.current_tag = tag
+	log.debug("switched to tag %d", tag)
+	server:_schedule_layout()
 end
 
 return Keybinds

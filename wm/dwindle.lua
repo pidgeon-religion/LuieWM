@@ -152,11 +152,19 @@ function Dwindle:find_leaf(node)
     return nil
 end
 
-function Dwindle:focus_next()
+function Dwindle:focus_next(tag)
     local views = {}
     for _, entry in ipairs(self.views) do
         if entry.view.mapped then
-            table.insert(views, entry)
+            if tag then
+                local on_tag = false
+                for t, _ in pairs(entry.view.tags) do
+                    if t == tag then on_tag = true; break end
+                end
+                if on_tag then table.insert(views, entry) end
+            else
+                table.insert(views, entry)
+            end
         end
     end
     if #views == 0 then return nil end
@@ -181,11 +189,19 @@ function Dwindle:focus_next()
     return next_view
 end
 
-function Dwindle:focus_prev()
+function Dwindle:focus_prev(tag)
     local views = {}
     for _, entry in ipairs(self.views) do
         if entry.view.mapped then
-            table.insert(views, entry)
+            if tag then
+                local on_tag = false
+                for t, _ in pairs(entry.view.tags) do
+                    if t == tag then on_tag = true; break end
+                end
+                if on_tag then table.insert(views, entry) end
+            else
+                table.insert(views, entry)
+            end
         end
     end
     if #views == 0 then return nil end
@@ -243,12 +259,22 @@ function Dwindle:layout_node(node, x, y, w, h, tag)
 
     if not node.children then
         if node.view then
-            local g = self.gap
-            local gx = x + g
-            local gy = y + g
-            local gw = math.max(1, w - 2 * g)
-            local gh = math.max(1, h - 2 * g)
-            node.view:set_position(gx, gy, gw, gh)
+            local visible = false
+            if tag then
+                for t, _ in pairs(node.view.tags) do
+                    if t == tag then visible = true; break end
+                end
+            else
+                visible = true
+            end
+            if visible and node.view.mapped and not node.view.floating then
+                local g = self.gap
+                local gx = x + g
+                local gy = y + g
+                local gw = math.max(1, w - 2 * g)
+                local gh = math.max(1, h - 2 * g)
+                node.view:set_position(gx, gy, gw, gh)
+            end
         end
         return
     end

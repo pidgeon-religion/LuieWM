@@ -64,6 +64,8 @@ local function main()
 		ratio = 0.5,
 	})
 
+	server.config = config
+
 	-- initialize server
 	if not server:init() then
 		log.error("failed to initialize server")

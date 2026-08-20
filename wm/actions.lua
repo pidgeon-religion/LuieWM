@@ -24,7 +24,7 @@ end
 
 function Actions.focus_next(server)
     if server.dwindle then
-        local next_view = server.dwindle:focus_next()
+        local next_view = server.dwindle:focus_next(server.current_tag)
         if next_view then
             server:focus_view(next_view)
         end
@@ -33,7 +33,7 @@ end
 
 function Actions.focus_prev(server)
     if server.dwindle then
-        local prev_view = server.dwindle:focus_prev()
+        local prev_view = server.dwindle:focus_prev(server.current_tag)
         if prev_view then
             server:focus_view(prev_view)
         end
@@ -48,8 +48,11 @@ function Actions.toggle_fullscreen(server)
     if focused.fullscreen then
         for _, output_data in ipairs(server.outputs) do
             local out = output_data.wlr_output
-            focused:set_position(0, 0, out.width, out.height)
             C.wlr_xdg_toplevel_set_fullscreen(focused.xdg_toplevel, true)
+            if focused.border_rect then
+                C.wlr_scene_rect_set_color(focused.border_rect, ffi.new("float[4]", 0, 0, 0, 0))
+            end
+            focused:set_position(0, 0, out.width, out.height)
         end
     else
         C.wlr_xdg_toplevel_set_fullscreen(focused.xdg_toplevel, false)
@@ -131,6 +134,15 @@ end
 function Actions.quit(server)
     log.info("quit requested, terminating compositor...")
     C.wl_display_terminate(server.wl_display)
+end
+
+function Actions.move_to_tag(server, tag)
+    local focused = server:get_focused_view()
+    if not focused then return end
+
+    focused.tags = { [tag] = true }
+    log.debug("moved %s to tag %d", focused:get_title(), tag)
+    server:_schedule_layout()
 end
 
 return Actions

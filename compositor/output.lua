@@ -36,22 +36,25 @@ function Output._finish_setup(server, wlr_output)
 		wlr_output = wlr_output,
 		layout_output = layout_output,
 		scene_output = scene_output,
+		bg_rect = bg_rect,
 	}
 	table.insert(server.outputs, output_data)
 
 	-- setup frame listener
-	local frame_listener = ffi_help.make_listener(function()
+	local frame_listener, frame_destroy = ffi_help.make_listener(function()
 		Output._on_frame(server, output_data)
 	end)
 	ffi_help.signal_add(wlr_output.events.frame, frame_listener)
 	output_data.frame_listener = frame_listener
+	output_data.frame_destroy = frame_destroy
 
 	-- setup destroy listener
-	local destroy_listener = ffi_help.make_listener(function()
+	local destroy_listener, destroy_destroy = ffi_help.make_listener(function()
 		Output._on_destroy(server, output_data)
 	end)
 	ffi_help.signal_add(wlr_output.events.destroy, destroy_listener)
 	output_data.destroy_listener = destroy_listener
+	output_data.destroy_destroy = destroy_destroy
 
 	-- apply layout for any existing views
 	server:_schedule_layout()
@@ -100,6 +103,9 @@ function Output._on_destroy(server, output_data)
 			break
 		end
 	end
+	if output_data.frame_destroy then output_data.frame_destroy() end
+	if output_data.destroy_destroy then output_data.destroy_destroy() end
+	if output_data.bg_rect then C.wlr_scene_node_destroy(output_data.bg_rect.node) end
 	log.info("output removed")
 end
 
