@@ -21,33 +21,35 @@ function Dwindle.new(config)
     config = config or {}
     self.gap = config.gap or 8
     self.ratio = config.ratio or 0.5
-    self.root = new_node()
-    self.focused_node = nil
-    self.views = {}
+    self.roots = {} -- per-tag tree roots
+    self.focused = {} -- per-tag focused nodes
+    self.current_tag = 1
+    self.views = {} -- flat list of { view, node, tag }
     self.pending_layout = false
     self.layout_params = nil
     return self
 end
 
-function Dwindle:add_view(view, tag_id)
-    local node = new_node()
-    node.view = view
-    view._dwindle_node = node
-    table.insert(self.views, { view = view, node = node, tag = tag_id or 1 })
+function Dwindle:get_root(tag)
+    return self.roots[tag or self.current_tag]
+end
 
-    if not self.root.view and not self.root.children then
-        self.root = node
-        self.focused_node = node
+-- attach a detached node to a tag's tree, splitting against the focused leaf
+function Dwindle:_insert_node(tag, node)
+    local root = self.roots[tag]
+    if not root or (not root.view and not root.children) then
+        self.roots[tag] = node
+        self.focused[tag] = node
         return
     end
 
-    local target = self.focused_node or self:find_leaf(self.root)
+    local target = self.focused[tag] or self:find_leaf(root)
     if not target or target.children then
-        target = self:find_leaf(self.root)
+        target = self:find_leaf(root)
     end
     if not target then
-        self.root = node
-        self.focused_node = node
+        self.roots[tag] = node
+        self.focused[tag] = node
         return
     end
 
@@ -56,38 +58,69 @@ function Dwindle:add_view(view, tag_id)
     parent.ratio = self.ratio
     parent.children = { target, node }
 
-    if self.root == target then
-        self.root = parent
+    if root == target then
+        self.roots[tag] = parent
     else
-        self:replace_child(self.root, target, parent)
+        self:replace_child(root, target, parent)
     end
 
-    self.focused_node = node
+    self.focused[tag] = node
+end
+
+function Dwindle:add_view(view, tag_id)
+    local tag = tag_id or self.current_tag or 1
+    local node = new_node()
+    node.view = view
+    view._dwindle_node = node
+    table.insert(self.views, { view = view, node = node, tag = tag })
+    self:_insert_node(tag, node)
+end
+
+-- move an existing view's node to another tag's tree
+function Dwindle:set_view_tag(view, new_tag)
+    for _, entry in ipairs(self.views) do
+        if entry.view == view then
+            local old = entry.tag
+            if old == new_tag then return end
+            if view._dwindle_node then
+                self:remove_node(old, view._dwindle_node)
+                self:_insert_node(new_tag, view._dwindle_node)
+            end
+            entry.tag = new_tag
+            return
+        end
+    end
 end
 
 function Dwindle:remove_view(view)
+    local tag
     for i, entry in ipairs(self.views) do
         if entry.view == view then
+            tag = entry.tag
             table.remove(self.views, i)
             break
         end
     end
 
-    if view._dwindle_node then
-        self:remove_node(view._dwindle_node)
+    if view._dwindle_node and tag then
+        self:remove_node(tag, view._dwindle_node)
         view._dwindle_node = nil
     end
 
-    if self.focused_node and self.focused_node.view == view then
-        self.focused_node = self.root
+    local f = tag and self.focused[tag]
+    if f and f.view == view then
+        self.focused[tag] = self.roots[tag]
     end
 end
 
-function Dwindle:remove_node(node)
-    local parent = self:find_parent(self.root, node)
+function Dwindle:remove_node(tag, node)
+    local root = self.roots[tag]
+    if not root then return end
+
+    local parent = self:find_parent(root, node)
     if not parent or not parent.children then
-        if self.root == node then
-            self.root = new_node()
+        if root == node then
+            self.roots[tag] = new_node()
         end
         return
     end
@@ -102,10 +135,10 @@ function Dwindle:remove_node(node)
 
     if not sibling then return end
 
-    if self.root == parent then
-        self.root = sibling
+    if root == parent then
+        self.roots[tag] = sibling
     else
-        local grandparent = self:find_parent(self.root, parent)
+        local grandparent = self:find_parent(root, parent)
         if grandparent and grandparent.children then
             for i, child in ipairs(grandparent.children) do
                 if child == parent then
@@ -185,7 +218,7 @@ function Dwindle:focus_next(tag)
     end
 
     local next_view = views[next_idx].view
-    self.focused_node = views[next_idx].node
+    self.focused[tag or self.current_tag] = views[next_idx].node
     return next_view
 end
 
@@ -223,19 +256,20 @@ function Dwindle:focus_prev(tag)
     end
 
     local prev_view = views[prev_idx].view
-    self.focused_node = views[prev_idx].node
+    self.focused[tag or self.current_tag] = views[prev_idx].node
     return prev_view
 end
 
 function Dwindle:get_focused_view()
-    if self.focused_node and self.focused_node.view then
-        return self.focused_node.view
+    local f = self.focused[self.current_tag]
+    if f and f.view then
+        return f.view
     end
     return nil
 end
 
 function Dwindle:layout(x, y, w, h, tag)
-    if not self.root then return end
+    self.current_tag = tag or self.current_tag
     self.layout_params = {x, y, w, h, tag}
     self.pending_layout = true
     log.debug("dwindle: layout scheduled %dx%d tag=%d", w, h, tag)
@@ -243,8 +277,10 @@ end
 
 function Dwindle:apply_pending_layout()
     if self.pending_layout and self.layout_params then
-        if self.root then
-            self:layout_node(self.root, unpack(self.layout_params))
+        local x, y, w, h, tag = unpack(self.layout_params)
+        local root = self.roots[tag]
+        if root then
+            self:layout_node(root, x, y, w, h, tag)
         end
         self.pending_layout = false
         self.layout_params = nil
@@ -296,9 +332,13 @@ function Dwindle:layout_node(node, x, y, w, h, tag)
 end
 
 function Dwindle:swap_focused_with_next()
-    local focused = self.focused_node
-    if not focused or not focused.children then
-        local parent = self:find_parent(self.root, focused)
+    local tag = self.current_tag
+    local focused = self.focused[tag]
+    local root = self.roots[tag]
+    if not focused or not root then return false end
+
+    if not focused.children then
+        local parent = self:find_parent(root, focused)
         if parent and parent.children then
             for i, child in ipairs(parent.children) do
                 if child == focused then
@@ -313,11 +353,13 @@ function Dwindle:swap_focused_with_next()
     return false
 end
 
-function Dwindle:count_mapped()
+function Dwindle:count_mapped(tag)
     local count = 0
     for _, entry in ipairs(self.views) do
         if entry.view.mapped then
-            count = count + 1
+            if not tag or entry.tag == tag then
+                count = count + 1
+            end
         end
     end
     return count

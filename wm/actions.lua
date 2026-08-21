@@ -93,7 +93,8 @@ function Actions.resize_ratio(server, delta)
     local node = focused._dwindle_node
     if not node then return end
 
-    local parent = server.dwindle:find_parent(server.dwindle.root, node)
+    local root = server.dwindle:get_root()
+    local parent = root and server.dwindle:find_parent(root, node)
     if parent and parent.children then
         parent.ratio = math.max(0.2, math.min(0.8, parent.ratio + delta))
         server:_schedule_layout()
@@ -109,7 +110,8 @@ function Actions.move_focus(server, direction)
     local node = focused._dwindle_node
     if not node then return end
 
-    local parent = server.dwindle:find_parent(server.dwindle.root, node)
+    local root = server.dwindle:get_root()
+    local parent = root and server.dwindle:find_parent(root, node)
     if not parent or not parent.children then return end
 
     local sibling
@@ -141,6 +143,9 @@ function Actions.move_to_tag(server, tag)
     if not focused then return end
 
     focused.tags = { [tag] = true }
+    if server.dwindle then
+        server.dwindle:set_view_tag(focused, tag)
+    end
     log.debug("moved %s to tag %d", focused:get_title(), tag)
     server:_schedule_layout()
 end
