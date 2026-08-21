@@ -174,8 +174,13 @@ struct wlr_seat {
     void *drag_source;
     uint32_t drag_serial;
     struct wl_list drag_offers;
-    // padding: pointer_state (384 bytes), keyboard_state (160 bytes), touch_state (48 bytes)
-    char _pointer_state[384];
+    // pointer_state: seat ptr + focused client/surface (rest opaque, 384 bytes total)
+    struct {
+        void *seat;
+        void *focused_client;
+        void *focused_surface;
+        char _rest[360];
+    } pointer_state;
     char _keyboard_state[160];
     char _touch_state[48];
     struct {

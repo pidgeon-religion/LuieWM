@@ -3,7 +3,6 @@ local log = require("util.log")
 local ffi_help = require("util.ffi_helpers")
 local wayland = require("bindings.wayland")
 local wlroots = require("bindings.wlroots")
-local scene_bindings = require("bindings.scene")
 local input_bindings = require("bindings.input")
 local xdg_bindings = require("bindings.xdg_shell")
 local render_bindings = require("bindings.render")
@@ -21,9 +20,8 @@ function Server.new()
 	self.wl_display = nil
 	self.backend = nil
 	self.renderer = nil
+	self.custom_renderer = nil
 	self.output_layout = nil
-	self.scene = nil
-	self.scene_layout = nil
 	self.cursor = nil
 	self.cursor_mgr = nil
 	self.seat = nil
@@ -68,8 +66,14 @@ function Server:init()
 		return false
 	end
 
+	-- check renderer type
+	local is_gles2 = C.wlr_renderer_is_gles2(self.renderer)
+	log.debug("renderer is_gles2: %s", is_gles2 and "true" or "false")
+
 	log.debug("init_wl_display...")
-	if not C.wlr_renderer_init_wl_display(self.renderer, self.wl_display) then
+	-- shm only for now: dma-buf textures render empty through our draw path,
+	-- revisit when wiring explicit sync / proper dmabuf handling
+	if not C.wlr_renderer_init_wl_shm(self.renderer, self.wl_display) then
 		log.error("failed to init renderer wl_display")
 		return false
 	end
@@ -98,14 +102,6 @@ function Server:init()
 	self.output_layout = C.wlr_output_layout_create(self.wl_display)
 	log.debug("output_layout OK")
 
-	log.debug("wlr_scene_create...")
-	self.scene = C.wlr_scene_create()
-	log.debug("scene OK")
-
-	log.debug("wlr_scene_attach_output_layout...")
-	self.scene_layout = C.wlr_scene_attach_output_layout(self.scene, self.output_layout)
-	log.debug("scene_layout OK")
-
 	log.debug("wlr_xdg_shell_create...")
 	self.xdg_shell = C.wlr_xdg_shell_create(self.wl_display, 3)
 	log.debug("xdg_shell OK")
@@ -119,11 +115,31 @@ function Server:init()
 	log.debug("cursor attached OK")
 
 	log.debug("wlr_xcursor_manager_create...")
-	self.cursor_mgr = C.wlr_xcursor_manager_create(nil, 24)
-	log.debug("xcursor_manager OK")
+	-- resolve theme/size: config > env > fallback
+	local theme = self.config.cursor_theme
+	if theme == nil or theme == "" then
+		theme = C.getenv("XCURSOR_THEME")
+	end
+	if theme == nil or theme == "" then
+		theme = "default"
+	end
+
+	local size = self.config.cursor_size
+	if size == nil then
+		local env_size = C.getenv("XCURSOR_SIZE")
+		size = env_size ~= nil and tonumber(ffi.string(env_size)) or nil
+	end
+	if size == nil then
+		size = 24
+	end
+
+	self.cursor_mgr = C.wlr_xcursor_manager_create(theme, size)
+	log.debug("xcursor_manager OK (theme=%s size=%d)", theme, size)
 
 	log.debug("wlr_xcursor_manager_load...")
-	C.wlr_xcursor_manager_load(self.cursor_mgr, 1)
+	if not C.wlr_xcursor_manager_load(self.cursor_mgr, 1) then
+		log.error("failed to load xcursor theme %s - falling back visuals may look default", theme)
+	end
 	log.debug("xcursor_manager_load OK")
 
 	log.debug("wlr_cursor_set_xcursor...")
@@ -138,7 +154,16 @@ function Server:init()
 	log.debug("seat capabilities OK")
 
 	local request_cursor_listener = ffi_help.make_listener(function(data)
-		log.debug("seat request_set_cursor")
+		local event = ffi.cast("struct wlr_seat_pointer_request_set_cursor_event *", data)
+		-- only honour requests from the client that owns pointer focus
+		if event.seat_client ~= self.seat.pointer_state.focused_client then
+			return
+		end
+		if event.surface then
+			C.wlr_cursor_set_surface(self.cursor, event.surface, event.hotspot_x, event.hotspot_y)
+		else
+			C.wlr_cursor_set_xcursor(self.cursor, self.cursor_mgr, "left_ptr")
+		end
 	end)
 	ffi_help.signal_add(self.seat.events.request_set_cursor, request_cursor_listener)
 
@@ -162,7 +187,6 @@ function Server:init()
 	C.wlr_viewporter_create(self.wl_display)
 	log.debug("viewporter OK")
 
-	-- firefox/wayland protocols
 	C.wlr_xdg_decoration_manager_v1_create(self.wl_display)
 	log.debug("xdg_decoration OK")
 	C.wlr_xdg_activation_v1_create(self.wl_display)
@@ -178,14 +202,20 @@ function Server:init()
 	C.wlr_server_decoration_manager_create(self.wl_display)
 	log.debug("server_decoration OK")
 
-	-- setup layer shell (creates layer scene trees + listeners)
+	-- initialise custom renderer
+	log.debug("initializing custom renderer...")
+	local Renderer = require("compositor.renderer.renderer")
+	self.custom_renderer = Renderer.new(self.renderer)
+	if not self.custom_renderer:init() then
+		log.error("failed to initialize custom renderer")
+		return false
+	end
+	log.debug("custom renderer OK")
+
+	-- setup layer shell
 	local layer_surface = require("compositor.layer_surface")
 	layer_surface.setup(self, self.layer_shell)
 
-	self:_setup_output_listeners()
-	self:_setup_xdg_listeners()
-	self:_setup_cursor_listeners()
-	self:_setup_seat_listeners()
 	self:_setup_backend_listeners()
 
 	log.info("LuieWM initialized successfully")
@@ -204,22 +234,6 @@ function Server:_setup_backend_listeners()
 		self:_on_new_input(ffi.cast("struct wlr_input_device *", data))
 	end
 	local new_input_listener = ffi_help.listen_signal(self.backend.events.new_input, new_input_cb)
-end
-
-function Server:_setup_output_listeners()
-	-- output handling is done in output.lua
-end
-
-function Server:_setup_xdg_listeners()
-	-- xdg surface handling is done in surface.lua
-end
-
-function Server:_setup_cursor_listeners()
-	-- cursor handling is done in input_handler.lua
-end
-
-function Server:_setup_seat_listeners()
-	-- seat handling is done in input_handler.lua
 end
 
 function Server:_on_new_output(wlr_output)

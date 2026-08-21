@@ -3,6 +3,7 @@ local log = require("util.log")
 local ffi_help = require("util.ffi_helpers")
 local C = ffi.C
 local View = require("wm.view")
+local Texture = require("compositor.renderer.texture")
 
 local Surface = {}
 
@@ -25,27 +26,11 @@ end
 function Surface._on_new_toplevel(server, xdg_toplevel)
 	local xdg_surface = xdg_toplevel.base
 
-	-- create parent tree for border + window content
-	local parent_tree = C.wlr_scene_tree_create(server.content_tree or server.scene.tree)
-
-	-- create border rect, starts fully transparent (alpha=0)
-	local border_width = server.config and server.config.border_width or 2
-	local transparent = ffi.new("float[4]", 0, 0, 0, 0)
-	local border_rect = C.wlr_scene_rect_create(parent_tree, 0, 0, transparent)
-
-	-- create scene tree for xdg surface (positioned at offset within parent)
-	local xdg_scene_tree = C.wlr_scene_xdg_surface_create(parent_tree, xdg_surface)
-	if xdg_scene_tree == nil then
-		log.error("failed to create scene xdg surface")
-		return
-	end
-
-	-- create view and add to server
-	local view = View.new(xdg_toplevel, parent_tree)
+	-- create view (no scene tree needed)
+	local view = View.new(xdg_toplevel)
 	view._server = server
 	view.tags = { [server.current_tag] = true }
-	view.border_rect = border_rect
-	view.xdg_scene_tree = xdg_scene_tree
+	view.border_width = server.config and server.config.border_width or 4
 	server:add_view(view)
 
 	-- add to dwindle layout
@@ -56,28 +41,13 @@ function Surface._on_new_toplevel(server, xdg_toplevel)
 	-- setup listeners for this view
 	Surface._setup_view_listeners(server, view)
 
-	-- apply layout (this sends the initial configure via set_position)
-	Surface._apply_layout(server)
-
 	log.info("new toplevel: %s", view:get_title())
 end
 
 function Surface._setup_view_listeners(server, view)
-	-- commit listener - send initial configure on first commit (surface is initialized by then)
+	-- commit listener - create/update texture from surface buffer, send initial configure
 	local commit_listener, commit_destroy = ffi_help.make_listener(function()
-		if not view.initial_configure_sent then
-			view.initial_configure_sent = true
-			local bw = server.config and server.config.border_width or 2
-			local cw = math.max(1, view.width - 2 * bw)
-			local ch = math.max(1, view.height - 2 * bw)
-			log.debug("configure: initial %dx%d for %s", cw, ch, view:get_title())
-			local serial = C.wlr_xdg_toplevel_set_size(view.xdg_toplevel, cw, ch)
-			view.pending_serial = serial
-			view.configure_pending = true
-		elseif view.configured and not view.border_shown then
-			view.border_shown = true
-			view:update_border()
-		end
+		Surface._on_commit(server, view)
 	end)
 	ffi_help.signal_add(view.wlr_surface.events.commit, commit_listener)
 	view.commit_listener = commit_listener
@@ -138,9 +108,6 @@ function Surface._setup_view_listeners(server, view)
 			view.initial_configure_acked = true
 		elseif not view.configured then
 			view.configured = true
-			if view.mapped and not view.fullscreen then
-				view:update_border()
-			end
 		end
 		view:on_ack_configure()
 	end)
@@ -151,18 +118,144 @@ function Surface._setup_view_listeners(server, view)
 	-- new_popup listener (firefox menus, tooltips, dropdowns, etc.)
 	local new_popup_listener, new_popup_destroy = ffi_help.make_listener(function(data)
 		local popup = ffi.cast("struct wlr_xdg_popup *", data)
-		if view.scene_tree ~= nil then
-			C.wlr_scene_xdg_surface_create(view.scene_tree, popup.base)
-			log.debug("popup created for %s", view:get_title())
-		end
+		-- popups are handled by the renderer via layer surfaces or subsurfaces
+		log.debug("popup created for %s", view:get_title())
 	end)
 	ffi_help.signal_add(view.xdg_surface.events.new_popup, new_popup_listener)
 	view.new_popup_listener = new_popup_listener
 	table.insert(view._destroy_funcs, new_popup_destroy)
+
+	-- subsurfaces (e.g. firefox web content) - composite them with the parent
+	local new_subsurface_listener, new_subsurface_destroy = ffi_help.make_listener_with_destroy(function(data)
+		local sub = ffi.cast("struct wlr_subsurface *", data)
+		log.debug("SUBSURFACE created for %s: surface=%p", view:get_title(), sub.surface)
+
+		local ss = {
+			subsurface = sub,
+			surface = sub.surface,
+			texture = nil,
+			mapped = false,
+			cleanup = {},
+		}
+		view.subsurfaces = view.subsurfaces or {}
+		table.insert(view.subsurfaces, ss)
+
+		local function on(signal, fn)
+			local listener, destroy = ffi_help.make_listener_with_destroy(fn)
+			ffi_help.signal_add(signal, listener)
+			table.insert(ss.cleanup, destroy)
+		end
+
+		on(ss.surface.events.commit, function()
+			if C.wlr_surface_has_buffer(ss.surface) then
+				local tex = C.wlr_surface_get_texture(ss.surface)
+				if tex ~= nil then
+					if not ss.texture then
+						ss.texture = Texture.from_wlr_texture(tex)
+					else
+						ss.texture:update_wlr_texture(tex)
+					end
+				end
+			end
+		end)
+
+		on(ss.surface.events.map, function()
+			ss.mapped = true
+		end)
+
+		on(ss.surface.events.unmap, function()
+			ss.mapped = false
+		end)
+
+		on(sub.events.destroy, function()
+			for i, s in ipairs(view.subsurfaces or {}) do
+				if s == ss then
+					table.remove(view.subsurfaces, i)
+					break
+				end
+			end
+			if ss.texture then
+				ss.texture:destroy()
+				ss.texture = nil
+			end
+			for _, fn in ipairs(ss.cleanup) do
+				fn()
+			end
+			ss.cleanup = {}
+		end)
+	end)
+	ffi_help.signal_add(view.wlr_surface.events.new_subsurface, new_subsurface_listener)
+	table.insert(view._destroy_funcs, new_subsurface_destroy)
+end
+
+function Surface._on_commit(server, view)
+	local surface = view.wlr_surface
+
+	-- send initial configure on first commit (must run even without buffer)
+	if not view.initial_configure_sent then
+		view.initial_configure_sent = true
+		local bw = view.border_width or 4
+		local cw = math.max(1, view.width - 2 * bw)
+		local ch = math.max(1, view.height - 2 * bw)
+		log.debug("configure: initial %dx%d for %s", cw, ch, view:get_title())
+		local serial = C.wlr_xdg_toplevel_set_size(view.xdg_toplevel, cw, ch)
+		view.pending_serial = serial
+		view.configure_pending = true
+	elseif view.configured and not view.border_shown then
+		view.border_shown = true
+	end
+
+	-- temp debug: catch bufferless commits (client frame-thirst)
+	if not C.wlr_surface_has_buffer(surface) then
+		log.debug("commit %s: NO BUFFER (frame callback pending?)", view:get_title())
+		return
+	end
+
+	-- create or update texture from surface (wlroots caches it per commit)
+	local tex = C.wlr_surface_get_texture(surface)
+	if tex ~= nil then
+		if not view.texture then
+			view.texture = Texture.from_wlr_texture(tex)
+			if view.texture then
+				log.debug("created texture for %s: %dx%d", view:get_title(), view.texture.width, view.texture.height)
+			end
+		else
+			view.texture:update_wlr_texture(tex)
+		end
+		-- update view size from buffer
+		view.texture_width = surface.current.width
+		view.texture_height = surface.current.height
+
+		-- window geometry within the buffer (excludes csd shadow margins).
+		-- the committed bitmask only marks commits that CHANGE geometry, so
+		-- persistence is managed here: drop it if the surface resizes without
+		-- a geometry update (stale clip otherwise)
+		local geo_bit = bit.band(view.xdg_surface.current.committed, 1) ~= 0
+		local g = view.xdg_surface.geometry
+		local sw, sh = surface.current.width, surface.current.height
+		if geo_bit then
+			if g.width > 0 and g.height > 0 then
+				view.render_geo = { x = g.x, y = g.y, width = g.width, height = g.height }
+			else
+				view.render_geo = nil
+			end
+		elseif view.render_geo and (view._last_sw ~= sw or view._last_sh ~= sh) then
+			view.render_geo = nil
+			log.debug("geometry stale after resize, ignoring: %s", view:get_title())
+		end
+		view._last_sw, view._last_sh = sw, sh
+		local rg = view.render_geo
+		log.debug("xdg commit %s: surf=%dx%d tex=%dx%d committed=%d geo=%s",
+			view:get_title(), surface.current.width, surface.current.height,
+			view.texture and view.texture.width or -1, view.texture and view.texture.height or -1,
+			view.xdg_surface.current.committed,
+			rg and string.format("%d,%d %dx%d", rg.x, rg.y, rg.width, rg.height) or "none")
+	end
 end
 
 function Surface._on_map(server, view)
 	view:map()
+	view.visible_on_tag = true
 
 	-- only focus if view is on the current tag
 	local on_current_tag = false
@@ -178,6 +271,11 @@ end
 
 function Surface._on_unmap(server, view)
 	view:unmap()
+	view.visible_on_tag = false
+
+	-- client cursor surface is gone - fall back to default image
+	local Input = require("compositor.input_handler")
+	Input.reset_cursor(server)
 
 	if view.focused then
 		server:focus_view(nil)
@@ -204,6 +302,10 @@ end
 
 function Surface._on_destroy(server, view)
 	view:cleanup_listeners()
+	if view.texture then
+		view.texture:destroy()
+		view.texture = nil
+	end
 	view:destroy()
 	server:remove_view(view)
 
@@ -239,14 +341,10 @@ end
 function Surface._on_request_fullscreen(server, view)
 	view.fullscreen = not view.fullscreen
 	if view.fullscreen then
-		-- get the output layout box for fullscreen
 		local layout = server.output_layout
 		local output = C.wlr_output_layout_output_at(layout, view.x + view.width / 2, view.y + view.height / 2)
 		if output ~= nil then
 			C.wlr_xdg_toplevel_set_fullscreen(view.xdg_toplevel, true)
-			if view.border_rect then
-				C.wlr_scene_rect_set_color(view.border_rect, ffi.new("float[4]", 0, 0, 0, 0))
-			end
 			view:set_position(0, 0, output.width, output.height)
 		end
 	else
@@ -266,19 +364,13 @@ function Surface._apply_layout(server)
 		return
 	end
 
-	-- update scene node visibility based on current tag
+	-- update view visibility based on current tag
 	for _, view in ipairs(server.views) do
-		if view.scene_tree then
-			local visible = false
-			for t, _ in pairs(view.tags) do
-				if t == server.current_tag then visible = true; break end
-			end
-			if visible then
-				C.wlr_scene_node_set_enabled(view.scene_tree.node, true)
-			else
-				C.wlr_scene_node_set_enabled(view.scene_tree.node, false)
-			end
+		local visible = false
+		for t, _ in pairs(view.tags) do
+			if t == server.current_tag then visible = true; break end
 		end
+		view.visible_on_tag = visible and view.mapped
 	end
 
 	for i, output_data in ipairs(server.outputs) do

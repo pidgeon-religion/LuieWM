@@ -5,16 +5,16 @@ local C = ffi.C
 local View = {}
 View.__index = View
 
-function View.new(xdg_toplevel, scene_tree)
+function View.new(xdg_toplevel)
     local self = setmetatable({}, View)
 
     self.xdg_toplevel = xdg_toplevel
     self.xdg_surface = xdg_toplevel.base
     self.wlr_surface = self.xdg_surface.surface
-    self.scene_tree = scene_tree
 
-    self.border_rect = nil
-    self.xdg_scene_tree = nil
+    self.texture = nil
+    self.texture_width = 0
+    self.texture_height = 0
 
     self.mapped = false
     self.configured = false
@@ -22,15 +22,18 @@ function View.new(xdg_toplevel, scene_tree)
     self.border_shown = false
     self.floating = false
     self.fullscreen = false
+    self.visible_on_tag = false
     self.pending_serial = 0
     self.configure_pending = false
     self.configure_queue = {}
     self.initial_configure_sent = false
+    self.opacity = 1.0
 
     self.x = 0
     self.y = 0
     self.width = 0
     self.height = 0
+    self.border_width = 4
 
     self.tags = { [1] = true }
     self.focused = false
@@ -68,29 +71,8 @@ function View:set_position(x, y, w, h)
     self.width = w
     self.height = h
 
-    -- position parent tree
-    C.wlr_scene_node_set_position(self.scene_tree.node, x, y)
-
-    -- update border
-    local bw = self._server and self._server.config and self._server.config.border_width or 2
-    if self.border_rect then
-        C.wlr_scene_rect_set_size(self.border_rect, w, h)
-        if self.fullscreen or not self.mapped or not self.configured or not self.border_shown then
-            -- keep transparent (alpha=0)
-            C.wlr_scene_rect_set_color(self.border_rect, ffi.new("float[4]", 0, 0, 0, 0))
-        else
-            -- show with proper focus/unfocus colour
-            local c = self.focused
-                and (self._server and self._server.config and self._server.config.focus_color or { 0.0, 0.478, 0.8, 1.0 })
-                or (self._server and self._server.config and self._server.config.unfocus_color or { 0.078, 0.078, 0.078, 1.0 })
-            C.wlr_scene_rect_set_color(self.border_rect, ffi.new("float[4]", c[1], c[2], c[3], c[4]))
-        end
-    end
-    if self.xdg_scene_tree then
-        C.wlr_scene_node_set_position(self.xdg_scene_tree.node, bw, bw)
-    end
-
     if self.mapped then
+        local bw = self.border_width or 4
         self:queue_configure(w - 2 * bw, h - 2 * bw)
     end
 end
@@ -121,33 +103,31 @@ end
 
 function View:configure()
     if self.floating then
-        local bw = self._server and self._server.config and self._server.config.border_width or 2
+        local bw = self.border_width or 4
         C.wlr_xdg_toplevel_set_size(self.xdg_toplevel, self.width - 2 * bw, self.height - 2 * bw)
     end
 end
 
 function View:map()
     self.mapped = true
+    self.visible_on_tag = true
     log.info("view mapped: %s (%s)", self:get_title(), self:get_app_id())
 end
 
 function View:unmap()
     self.mapped = false
-    if self.border_rect then
-        C.wlr_scene_node_set_enabled(self.border_rect.node, false)
-    end
+    self.visible_on_tag = false
     log.info("view unmapped: %s", self:get_title())
 end
 
 function View:destroy()
     log.info("view destroyed: %s", self:get_title())
     self.mapped = false
-    -- wlroots destroys the xdg scene tree automatically when the xdg_surface
-    -- is destroyed. the parent tree is left as an orphan — small leak but
-    -- safe. freeing it first would double-free the xdg scene tree child.
-    self.scene_tree = nil
-    self.border_rect = nil
-    self.xdg_scene_tree = nil
+    self.visible_on_tag = false
+    if self.texture then
+        self.texture:destroy()
+        self.texture = nil
+    end
     self.wlr_surface = nil
 end
 
@@ -176,13 +156,6 @@ function View:focus()
     log.debug("focus: %s", self:get_title())
     C.wlr_xdg_toplevel_set_activated(self.xdg_toplevel, true)
 
-    -- border colour
-    if self.border_rect and self.mapped and self.configured and not self.fullscreen then
-        local c = self._server and self._server.config and self._server.config.focus_color
-            or { 0.0, 0.478, 0.8, 1.0 }
-        C.wlr_scene_rect_set_color(self.border_rect, ffi.new("float[4]", c[1], c[2], c[3], c[4]))
-    end
-
     local focused_surface = self.xdg_surface.surface
     local seat = self._server.seat
 
@@ -196,16 +169,10 @@ function View:focus()
         log.debug("focus: no keyboard for %s", self:get_title())
     end
 
-    -- pointer focus
-    local node = self.scene_tree.node
-    local lx = ffi.new("int[1]")
-    local ly = ffi.new("int[1]")
-    if C.wlr_scene_node_coords(node, lx, ly) then
-        log.debug("focus: pointer enter for %s at %d,%d", self:get_title(), lx[0] - self.x, ly[0] - self.y)
-        local bw = self._server and self._server.config and self._server.config.border_width or 2
-        C.wlr_seat_pointer_notify_enter(seat, focused_surface,
-            lx[0] - self.x - bw, ly[0] - self.y - bw)
-    end
+    -- pointer focus (using view geometry directly)
+    local bw = self.border_width or 4
+    C.wlr_seat_pointer_notify_enter(seat, focused_surface,
+        -bw, -bw)
 end
 
 function View:unfocus()
@@ -213,22 +180,10 @@ function View:unfocus()
     if self.mapped then
         C.wlr_xdg_toplevel_set_activated(self.xdg_toplevel, false)
     end
-
-    -- border colour
-    if self.border_rect and self.mapped and self.configured and not self.fullscreen then
-        local c = self._server and self._server.config and self._server.config.unfocus_color
-            or { 0.078, 0.078, 0.078, 1.0 }
-        C.wlr_scene_rect_set_color(self.border_rect, ffi.new("float[4]", c[1], c[2], c[3], c[4]))
-    end
 end
 
 function View:update_border()
-    if self.border_rect and self.mapped and self.configured and not self.fullscreen then
-        local c = self.focused
-            and (self._server and self._server.config and self._server.config.focus_color or { 0.0, 0.478, 0.8, 1.0 })
-            or (self._server and self._server.config and self._server.config.unfocus_color or { 0.078, 0.078, 0.078, 1.0 })
-        C.wlr_scene_rect_set_color(self.border_rect, ffi.new("float[4]", c[1], c[2], c[3], c[4]))
-    end
+    -- border is drawn by renderer, no scene node to update
 end
 
 function View:close()

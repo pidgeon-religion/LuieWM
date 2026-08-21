@@ -20,6 +20,8 @@ Config.defaults = {
 	launcher = "wofi --show drun",
 	browser = "firefox",
 	startup_command = nil,
+	cursor_theme = "", -- empty = XCURSOR_THEME env, else "default"
+	cursor_size = nil, -- nil = XCURSOR_SIZE env, else 24
 }
 
 Config.hex_to_rgba = hex_to_rgba

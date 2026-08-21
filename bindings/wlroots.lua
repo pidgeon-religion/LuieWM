@@ -1,6 +1,14 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
+/* pixman region (24 bytes on x86_64: box32 + data ptr) */
+typedef struct { int32_t x1, y1, x2, y2; } pixman_box32_t;
+typedef struct pixman_region32_data pixman_region32_data_t;
+typedef struct { pixman_box32_t extents; pixman_region32_data_t *data; } pixman_region32_t;
+void pixman_region32_init(pixman_region32_t *region);
+void pixman_region32_init_rect(pixman_region32_t *region, int x, int y, unsigned int width, unsigned int height);
+void pixman_region32_fini(pixman_region32_t *region);
+
 /* ---- wlr/backend.h ---- */
 struct wlr_backend {
     const void *impl;

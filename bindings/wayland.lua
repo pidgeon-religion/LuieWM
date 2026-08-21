@@ -59,6 +59,9 @@ struct wl_event_source *wl_event_loop_add_fd(struct wl_event_loop *loop,
     int fd, uint32_t mask, wl_notify_func_t func, void *data);
 struct wl_event_source *wl_event_loop_add_idle(struct wl_event_loop *loop,
     wl_notify_func_t func, void *data);
+struct wl_event_source *wl_event_loop_add_timer(struct wl_event_loop *loop,
+    wl_notify_func_t func, void *data);
+void wl_event_source_timer_update(struct wl_event_source *source, int ms_delay);
 
 /* wl_global functions */
 void wl_global_destroy(struct wl_global *global);
