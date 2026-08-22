@@ -45,6 +45,22 @@ function Actions.toggle_fullscreen(server)
     if not focused then return end
 
     focused.fullscreen = not focused.fullscreen
+    if focused.xdg_toplevel == nil then
+        -- xwayland views push their own state directly
+        if focused.xsurface ~= nil then
+            C.wlr_xwayland_surface_set_fullscreen(focused.xsurface, focused.fullscreen)
+        end
+        if focused.fullscreen then
+            for _, output_data in ipairs(server.outputs) do
+                local out = output_data.wlr_output
+                focused:set_position(0, 0, out.width, out.height)
+            end
+        else
+            server:_schedule_layout()
+        end
+        return
+    end
+
     if focused.fullscreen then
         for _, output_data in ipairs(server.outputs) do
             local out = output_data.wlr_output
@@ -148,6 +164,35 @@ function Actions.move_to_tag(server, tag)
     end
     log.debug("moved %s to tag %d", focused:get_title(), tag)
     server:_schedule_layout()
+end
+
+function Actions.dump_views(server)
+    log.info("=== VIEW DUMP (tag %d) ===", server.current_tag or 1)
+    for _, v in ipairs(server.views) do
+        local tex_w, tex_h = "nil", "nil"
+        if v.texture ~= nil then
+            tex_w, tex_h = tostring(tonumber(v.texture.width)), tostring(tonumber(v.texture.height))
+        end
+        local class = "?"
+        if v.get_app_id ~= nil then
+            class = tostring(v:get_app_id())
+        end
+        log.info(
+            "view %s: class=%s mapped=%s float=%s pos=%d,%d size=%dx%d tex=%sx%s visible=%s",
+            v:get_title(),
+            class,
+            tostring(v.mapped),
+            tostring(v.floating),
+            v.x or -1,
+            v.y or -1,
+            v.width or -1,
+            v.height or -1,
+            tex_w,
+            tex_h,
+            tostring(v.visible_on_tag)
+        )
+    end
+    log.info("=== END DUMP (%d views) ===", #server.views)
 end
 
 return Actions

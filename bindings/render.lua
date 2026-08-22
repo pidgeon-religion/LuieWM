@@ -117,6 +117,23 @@ void wlr_output_state_set_scale(void *state, float scale);
 void wlr_output_state_set_transform(void *state, uint32_t transform);
 void wlr_output_state_set_adaptive_sync_enabled(void *state, bool enabled);
 
+// wlr/render/allocator.h
+struct wlr_drm_format {
+    uint32_t format;
+    size_t len;
+    size_t capacity;
+    uint64_t *modifiers;
+};
+struct wlr_buffer *wlr_allocator_create_buffer(struct wlr_allocator *alloc,
+    int width, int height, const struct wlr_drm_format *format);
+
+// wlr/shm_allocator.h - cpu-backed allocator, always succeeds for small
+// buffers regardless of driver/gbm quirks (hybrid gpu setups)
+struct wlr_allocator *wlr_shm_allocator_create(struct wlr_renderer *renderer);
+bool wlr_buffer_begin_data_ptr_access(struct wlr_buffer *buffer, uint32_t flags,
+    void **data, uint32_t *format, size_t *stride);
+void wlr_buffer_end_data_ptr_access(struct wlr_buffer *buffer);
+
 // wlr/types/wlr_buffer.h
 struct wlr_buffer {
     struct wlr_renderer *renderer;

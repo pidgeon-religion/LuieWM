@@ -227,6 +227,13 @@ function Server:init()
 	C.wlr_server_decoration_manager_create(self.wl_display)
 	log.debug("server_decoration OK")
 
+	-- xwayland (eager: spawned at startup so DISPLAY exists before clients)
+	require("bindings.xwayland")
+	local XW = require("wm.xw.init")
+	if XW.setup(self) then
+		log.debug("xwayland OK")
+	end
+
 	-- initialise custom renderer
 	log.debug("initializing custom renderer...")
 	local Renderer = require("compositor.renderer.renderer")

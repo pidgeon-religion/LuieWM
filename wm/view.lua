@@ -67,7 +67,6 @@ end
 function View:set_position(x, y, w, h)
     self.x = x
     self.y = y
-    log.debug("set_position: %s -> %d,%d %dx%d", self:get_title(), x, y, w, h)
     self.width = w
     self.height = h
 
@@ -78,6 +77,7 @@ function View:set_position(x, y, w, h)
 end
 
 function View:queue_configure(w, h)
+    log.debug("queue_configure %dx%d for %s", w, h, self:get_title())
     if not self.configure_pending then
         local serial = C.wlr_xdg_toplevel_set_size(self.xdg_toplevel, w, h)
         self.pending_serial = serial

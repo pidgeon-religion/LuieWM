@@ -43,9 +43,21 @@ function Dwindle:_insert_node(tag, node)
         return
     end
 
-    local target = self.focused[tag] or self:find_leaf(root)
-    if not target or target.children then
+    -- stale focused nodes (detached by earlier removals) must not be used
+    -- as split anchors, otherwise the new subtree is silently orphaned
+    local target = self.focused[tag]
+    if target and target.children then
+        target = nil
+    end
+    if target and not self:contains_node(tag, target) then
+        target = nil
+        self.focused[tag] = nil
+    end
+    if not target then
         target = self:find_leaf(root)
+    end
+    if not target then
+        target = self:find_any_leaf(root)
     end
     if not target then
         self.roots[tag] = node
@@ -74,6 +86,10 @@ function Dwindle:add_view(view, tag_id)
     view._dwindle_node = node
     table.insert(self.views, { view = view, node = node, tag = tag })
     self:_insert_node(tag, node)
+    log.debug(
+        "dwindle: add_view '%s' tag=%d (total=%d)",
+        tostring(view:get_title()), tag, #self.views
+    )
 end
 
 -- move an existing view's node to another tag's tree
@@ -102,6 +118,14 @@ function Dwindle:remove_view(view)
         end
     end
 
+    log.debug(
+        "dwindle: remove_view '%s' tag=%s found=%s (total=%d)",
+        tostring(view:get_title()),
+        tostring(tag),
+        tostring(tag ~= nil),
+        #self.views
+    )
+
     if view._dwindle_node and tag then
         self:remove_node(tag, view._dwindle_node)
         view._dwindle_node = nil
@@ -109,7 +133,12 @@ function Dwindle:remove_view(view)
 
     local f = tag and self.focused[tag]
     if f and f.view == view then
-        self.focused[tag] = self.roots[tag]
+        self.focused[tag] = nil
+    end
+    -- focused may also reference a node detached as a side effect of surgery
+    f = tag and self.focused[tag]
+    if f and not self:contains_node(tag, f) then
+        self.focused[tag] = nil
     end
 end
 
@@ -183,6 +212,36 @@ function Dwindle:find_leaf(node)
         if leaf then return leaf end
     end
     return nil
+end
+
+-- last-resort leaf lookup that ignores map state; used when every leaf is
+-- an unmapped helper window so callers never fall into root-replacement
+function Dwindle:find_any_leaf(node)
+    if not node.children then
+        return node
+    end
+    for _, child in ipairs(node.children) do
+        local leaf = self:find_any_leaf(child)
+        if leaf then return leaf end
+    end
+    return nil
+end
+
+-- true if node is reachable from the tag's root
+function Dwindle:contains_node(tag, node)
+    local root = self.roots[tag]
+    if not root or not node then return false end
+    local found = false
+    local function walk(n)
+        if found or not n then return end
+        if n == node then found = true; return end
+        if n.children then
+            walk(n.children[1])
+            walk(n.children[2])
+        end
+    end
+    walk(root)
+    return found
 end
 
 function Dwindle:focus_next(tag)
@@ -282,6 +341,70 @@ function Dwindle:apply_pending_layout()
         if root then
             self:layout_node(root, x, y, w, h, tag)
         end
+
+        -- verify tree connectivity: every tiled mapped view on this tag must
+        -- be reachable from the root, otherwise the tiler silently skips it
+        local seen = {}
+        local function collect(node, depth)
+            if not node then return end
+            seen[node] = true
+            if node.children and #node.children ~= 2 then
+                log.warn(
+                    "dwindle: audit found malformed node (%d children) at depth %d",
+                    #node.children,
+                    depth
+                )
+            end
+            if node.children then
+                collect(node.children[1], depth + 1)
+                collect(node.children[2], depth + 1)
+            end
+        end
+        collect(root, 0)
+
+        local function describe(node)
+            if not node then return "?" end
+            if node.view then
+                return string.format(
+                    "'%s'%s",
+                    tostring(node.view:get_title()),
+                    node.view.mapped and "" or "*"
+                )
+            end
+            if node.children then
+                local parts = {}
+                for _, c in ipairs(node.children) do
+                    parts[#parts + 1] = describe(c)
+                end
+                return "(" .. table.concat(parts, " | ") .. ")"
+            end
+            return "(-)"
+        end
+        log.debug("dwindle: tree[%d]=%s", tag, describe(root))
+        for _, entry in ipairs(self.views) do
+            if entry.tag == tag and entry.view.mapped and not entry.view.floating then
+                if not entry.view._dwindle_node then
+                    log.warn(
+                        "dwindle: view '%s' has NO dwindle node (never added or lost)",
+                        tostring(entry.view:get_title())
+                    )
+                elseif not seen[entry.view._dwindle_node] then
+                    log.warn(
+                        "dwindle: view '%s' DETACHED from tag-%d tree (orphaned leaf)",
+                        tostring(entry.view:get_title()),
+                        tag
+                    )
+                end
+            elseif entry.view.mapped and not entry.view.floating and entry.tag ~= tag then
+                log.debug(
+                    "dwindle: audit: '%s' is on tag %s, not layout tag %d",
+                    tostring(entry.view:get_title()),
+                    tostring(entry.tag),
+                    tag
+                )
+            end
+        end
+
         self.pending_layout = false
         self.layout_params = nil
     end
@@ -310,12 +433,29 @@ function Dwindle:layout_node(node, x, y, w, h, tag)
                 local gw = math.max(1, w - 2 * g)
                 local gh = math.max(1, h - 2 * g)
                 node.view:set_position(gx, gy, gw, gh)
+            elseif node.view.mapped then
+                log.debug(
+                    "dwindle: skip leaf '%s' visible=%s mapped=%s floating=%s",
+                    tostring(node.view:get_title()),
+                    tostring(visible),
+                    tostring(node.view.mapped),
+                    tostring(node.view.floating)
+                )
             end
         end
         return
     end
 
-    if #node.children ~= 2 then return end
+    if #node.children ~= 2 then
+        log.warn(
+            "dwindle: malformed node with %d children during layout (repairing by recursion)",
+            #node.children
+        )
+        for _, child in ipairs(node.children) do
+            self:layout_node(child, x, y, w, h, tag)
+        end
+        return
+    end
 
     local first = node.children[1]
     local second = node.children[2]

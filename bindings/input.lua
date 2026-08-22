@@ -283,6 +283,24 @@ struct wlr_xcursor_manager {
 struct wlr_xcursor_manager *wlr_xcursor_manager_create(const char *name, uint32_t size);
 void wlr_xcursor_manager_destroy(struct wlr_xcursor_manager *manager);
 bool wlr_xcursor_manager_load(struct wlr_xcursor_manager *manager, float scale);
+struct wlr_xcursor *wlr_xcursor_manager_get_xcursor(struct wlr_xcursor_manager *manager,
+    const char *name, float scale);
+
+struct wlr_xcursor_image {
+    uint32_t width;
+    uint32_t height;
+    uint32_t hotspot_x;
+    uint32_t hotspot_y;
+    uint32_t delay;
+    uint8_t *buffer;
+};
+
+struct wlr_xcursor {
+    unsigned int image_count;
+    struct wlr_xcursor_image **images;
+    char *name;
+    uint32_t total_delay;
+};
 
 // wlr/cursor_shape_v1.h
 struct wlr_cursor_shape_manager_v1 {
