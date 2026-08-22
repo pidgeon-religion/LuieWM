@@ -135,7 +135,6 @@ function Surface._setup_view_listeners(server, view)
 	-- subsurfaces (e.g. firefox web content) - composite them with the parent
 	local new_subsurface_listener, new_subsurface_destroy = ffi_help.make_listener_with_destroy(function(data)
 		local sub = ffi.cast("struct wlr_subsurface *", data)
-		log.debug("SUBSURFACE created for %s: surface=%p", view:get_title(), sub.surface)
 
 		local ss = {
 			subsurface = sub,
@@ -195,12 +194,10 @@ function Surface._setup_view_listeners(server, view)
 	table.insert(view._destroy_funcs, new_subsurface_destroy)
 end
 
--- fill in a popup's scheduled geometry and send its configure. only legal
--- once the popup surface did its initial commit - before that wlroots'
--- unconstrain helper would assert on schedule_configure
+	-- fill in a popup's scheduled geometry + send its configure. only legal
+	-- after the popup's initial commit - wlroots asserts before that
 function Surface._configure_popup(server, view, entry)
 	local popup = entry.popup
-	log.debug("popup %s configure: initialized=%s", tostring(popup), tostring(popup.base.initialized))
 	if not popup.base.initialized then
 		return
 	end
@@ -231,8 +228,6 @@ end
 -- track a new popup: texture lifecycle like subsurfaces plus the configure
 -- handshake clients block on. nested popups recurse through base.new_popup
 function Surface._on_new_popup(server, view, popup)
-	log.debug("popup %s created for %s", tostring(popup), view:get_title())
-
 	local entry = {
 		popup = popup,
 		view = view,
@@ -261,46 +256,9 @@ function Surface._on_new_popup(server, view, popup)
 					entry.texture:update_wlr_texture(tex)
 				end
 			end
-			-- state probe: compares what firefox vs gtk popups actually commit
-			-- (viewport/scale/subsurfaces are our invisible-menu suspects)
-			if not entry._probed then
-				entry._probed = true
-				local st = entry.surface.current
-				local src_box = ffi.new("struct wlr_fbox")
-				C.wlr_surface_get_buffer_source_box(entry.surface, src_box)
-				log.debug(
-					"popup %s buffer state: logical=%dx%d buffer=%dx%d scale=%d transform=%d "
-						.. "viewport(has_src=%s has_dst=%s src=%gx%g %gx%g dst=%dx%d) "
-						.. "srcbox=(%gx%g %gx%g) subsurfaces(above=%s below=%s) committed=%d",
-					tostring(popup),
-					st.width,
-					st.height,
-					st.buffer_width,
-					st.buffer_height,
-					st.scale,
-					st.transform,
-					tostring(st.viewport.has_src),
-					tostring(st.viewport.has_dst),
-					tonumber(st.viewport.src.x),
-					tonumber(st.viewport.src.y),
-					tonumber(st.viewport.src.width),
-					tonumber(st.viewport.src.height),
-					st.viewport.dst_width,
-					st.viewport.dst_height,
-					tonumber(src_box.x),
-					tonumber(src_box.y),
-					tonumber(src_box.width),
-					tonumber(src_box.height),
-					tostring(st.subsurfaces_above.next ~= st.subsurfaces_above),
-					tostring(st.subsurfaces_below.next ~= st.subsurfaces_below),
-					st.committed
-				)
-			end
 		end
-		-- clients do an initial null commit right after creating the popup;
-		-- that flips base.initialized and makes configuring legal. one shot
-		-- like labwc/dwl/river - reconfiguring on later commits makes clients
-		-- treat it as a reposition
+		-- clients do an initial null commit first (flips base.initialized).
+		-- one shot: later configures read as repositions to the client
 		if not entry.configured_once and popup.base.initialized then
 			entry.configured_once = true
 			Surface._configure_popup(server, view, entry)
@@ -309,21 +267,18 @@ function Surface._on_new_popup(server, view, popup)
 
 	on(entry.surface.events.map, function()
 		entry.mapped = true
-		log.debug("popup %s mapped %dx%d", tostring(popup), popup.current.geometry.width, popup.current.geometry.height)
 	end)
 
 	on(entry.surface.events.unmap, function()
 		entry.mapped = false
-		log.debug("popup %s unmapped", tostring(popup))
 		if entry.texture then
 			entry.texture:destroy()
 			entry.texture = nil
 		end
 	end)
 
-	-- gecko-style clients paint their popup content into subsurfaces of the
-	-- popup itself, keeping the base surface blank - track them like toplevel
-	-- subsurfaces or every firefox menu renders as nothing
+	-- chromium/gecko paint popup content into subsurfaces; without tracking
+	-- them the base surface is blank and menus render as nothing
 	entry.subsurfaces = {}
 	on(entry.surface.events.new_subsurface, function(data)
 		local sub = ffi.cast("struct wlr_subsurface *", data)
@@ -393,16 +348,13 @@ function Surface._on_new_popup(server, view, popup)
 		Surface._on_new_popup(server, view, ffi.cast("struct wlr_xdg_popup *", data))
 	end)
 
-	-- wlroots asserts every signal list is empty before freeing the popup
-	-- struct; its own events.destroy fires right before that assert, so this
-	-- is where everything must detach. the base surface can also go first
-	-- depending on who initiates teardown, hence the idempotent double hook
+	-- wlroots asserts empty signal lists before freeing the popup; detach
+	-- everything here (idempotent, base destroy hooks it too)
 	local function cleanup()
 		if entry.dead then
 			return
 		end
 		entry.dead = true
-		log.debug("popup %s cleanup", tostring(popup))
 		for i, e in ipairs(view.popups or {}) do
 			if e == entry then
 				table.remove(view.popups, i)
@@ -425,12 +377,16 @@ end
 function Surface._on_commit(server, view)
 	local surface = view.wlr_surface
 
-	-- send initial configure on first commit (must run even without buffer)
+	-- initial configure; 0x0 = client picks its own size (a ~1x1 one makes
+	-- chromium/gecko cache a tiny layout)
 	if not view.initial_configure_sent then
 		view.initial_configure_sent = true
-		local bw = view.border_width or 4
-		local cw = math.max(1, view.width - 2 * bw)
-		local ch = math.max(1, view.height - 2 * bw)
+		local cw, ch = 0, 0
+		if view.width > 0 then
+			local bw = view.border_width or 4
+			cw = math.max(1, view.width - 2 * bw)
+			ch = math.max(1, view.height - 2 * bw)
+		end
 		log.debug("configure: initial %dx%d for %s", cw, ch, view:get_title())
 		local serial = C.wlr_xdg_toplevel_set_size(view.xdg_toplevel, cw, ch)
 		view.pending_serial = serial
@@ -439,25 +395,15 @@ function Surface._on_commit(server, view)
 		view.border_shown = true
 	end
 
-	-- window geometry within the buffer (excludes csd shadow margins).
-	-- processed before any early return: clients may commit a fresh geometry
-	-- on a bufferless commit and attach the matching buffer afterwards
-	local geo_bit = bit.band(view.xdg_surface.current.committed, 1) ~= 0
+	-- csd window geometry within the buffer; lives before the bufferless
+	-- return (clients can commit geometry without a buffer) and persists
+	-- across resizes, so current is always authoritative
 	local g = view.xdg_surface.geometry
-	local sw, sh = surface.current.width, surface.current.height
-	if geo_bit then
-		if g.width > 0 and g.height > 0 then
-			view.render_geo = { x = g.x, y = g.y, width = g.width, height = g.height }
-		else
-			view.render_geo = nil
-		end
-	elseif view.render_geo and (view._last_sw ~= sw or view._last_sh ~= sh) then
-		-- the committed bitmask only marks commits that CHANGE geometry, so
-		-- persistence is managed here: drop it if the surface resizes without
-		-- a geometry update (stale clip otherwise)
+	if g.width > 0 and g.height > 0 then
+		view.render_geo = { x = g.x, y = g.y, width = g.width, height = g.height }
+	else
 		view.render_geo = nil
 	end
-	view._last_sw, view._last_sh = sw, sh
 
 	-- temp debug: catch bufferless commits (client frame-thirst)
 	if not C.wlr_surface_has_buffer(surface) then

@@ -13,9 +13,7 @@ local GL_COMPILE_STATUS = 0x8B81
 local GL_LINK_STATUS = 0x8B82
 local GL_INFO_LOG_LENGTH = 0x8B84
 
--- shared vertex stage: positions arrive as ndc (y-down flip done cpu-side),
--- converted back to output px so the sdf stays isotropic in pixel space;
--- v_local is relative to the box centre
+-- shared vertex stage; v_local = output px relative to box centre
 local rounded_vert = [[
 #version 100
 precision highp float;
@@ -33,10 +31,8 @@ void main() {
 }
 ]]
 
--- textured rounded rect; radii are per corner (tl tr bl br) so clipped
--- subsurfaces can stay square except where they meet the parent's corners.
--- wlroots client textures are premultiplied on sample when they carry alpha,
--- and our blend func expects premultiplied rgb throughout
+-- textured rounded rect; per-corner radii for clipped subsurfaces.
+-- output is premultiplied to match our blend func
 local rounded_texture_frag = [[
 #version 100
 precision highp float;
@@ -61,9 +57,7 @@ void main() {
 }
 ]]
 
--- solid rounded rect: full fill at border_width 0, otherwise only the outer
--- band of border_width px paints (ring underlay for bordered views).
--- same per-corner radii as the texture stage so both edges always match
+-- fill at border_width 0, else only the outer band paints (border ring)
 local rounded_solid_frag = [[
 #version 100
 precision highp float;

@@ -38,9 +38,8 @@ function Output._finish_setup(server, wlr_output)
 	C.wlr_output_state_init(state)
 	C.wlr_output_state_set_enabled(state, true)
 
-	-- find preferred mode - use current_mode first (most reliable).
-	-- ~= nil on purpose: a NULL cdata is truthy in luajit, and nested or
-	-- headless outputs have no mode until one is set
+	-- find preferred mode - ~= nil since a NULL cdata is truthy in luajit
+	-- (nested/headless outputs have no mode until one is set)
 	local preferred_mode = nil
 	if wlr_output.current_mode ~= nil then
 		preferred_mode = wlr_output.current_mode
@@ -172,11 +171,6 @@ function Output._on_frame(server, output_data)
 	local bg_color = server.config and server.config.background_color or { 0.1, 0.1, 0.12, 1.0 }
 	server.custom_renderer:clear(pass, bg_color)
 
-	-- frame trace: when a popup draws, dump every draw of that frame so
-	-- overdraw order can be verified against the popup position
-	local frame_trace = {}
-	local drew_popup = false
-
 	-- layer shell stacking: background(0)/bottom(1) below views,
 	-- top(2)/overlay(3) above them
 	local function draw_layers(below)
@@ -188,10 +182,6 @@ function Output._on_frame(server, output_data)
 			local is_below = (entry.layer or 0) <= 1
 			if is_below == below and ls.surface and entry.mapped and entry.texture then
 				local ls_box = { x = entry.x or 0, y = entry.y or 0, width = entry.width, height = entry.height }
-				table.insert(
-					frame_trace,
-					string.format("layer at %d,%d %dx%d", ls_box.x, ls_box.y, ls_box.width, ls_box.height)
-				)
 				server.custom_renderer:draw_texture(pass, entry.texture, ls_box, output_width, output_height, 1.0)
 			end
 		end
@@ -203,10 +193,6 @@ function Output._on_frame(server, output_data)
 	local corner_radius = (server.config and server.config.corner_radius) or 0
 	for _, view in ipairs(server.views) do
 		if view.mapped and view.texture and view.visible_on_tag then
-			table.insert(
-				frame_trace,
-				string.format("view %s at %d,%d %dx%d", view:get_title(), view.x, view.y, view.width, view.height)
-			)
 			local bw = view.border_width or 0
 			local cx, cy = view.x + bw, view.y + bw
 			-- content box: view minus borders; clients configure at this size
@@ -224,9 +210,7 @@ function Output._on_frame(server, output_data)
 			local src
 			if rg then
 				-- csd: whole buffer incl shadow margins, offset so the window
-				-- geometry lands on the content box; clipped so shadows never
-				-- paint. rounded mode additionally caps the visible area at
-				-- the content box instead of spilling past it
+				-- geometry lands on the content box; clipped so shadows never paint
 				dst = { x = cx - rg.x, y = cy - rg.y, width = view.texture.width, height = view.texture.height }
 				local vw = math.min(rg.width, cw)
 				local vh = math.min(rg.height, ch)
@@ -234,9 +218,8 @@ function Output._on_frame(server, output_data)
 				quad = { x = cx, y = cy, width = vw, height = vh }
 				clip = { x = cx, y = cy, width = rg.width, height = rg.height }
 			else
-				-- no geometry: draw the buffer 1:1 anchored top-left like
-				-- scene does. rounded mode clips it into the content box,
-				-- plain mode lets margins spill out (sway/hyprland behavior)
+				-- no geometry: 1:1 anchored top-left like scene does; rounded
+				-- mode clips into the content box, plain mode spills over
 				local vw = math.min(view.texture.width, cw)
 				local vh = math.min(view.texture.height, ch)
 				src = { x = 0, y = 0, width = vw, height = vh }
@@ -284,9 +267,8 @@ function Output._on_frame(server, output_data)
 					)
 				end
 
-				-- content always at the client's committed size (src maps 1:1
-				-- onto quad), anchored top-left until the resize catches up -
-				-- never stretched
+				-- content at committed size, 1:1 and top-left anchored
+				-- (never stretched to the tile)
 				server.custom_renderer:draw_texture_rounded(
 					pass,
 					view.texture,
@@ -299,31 +281,13 @@ function Output._on_frame(server, output_data)
 					{ r_inner, r_inner, r_inner, r_inner }
 				)
 
-				-- subsurfaces: positions are relative to the parent surface
-				-- origin; clipped into the content box and rounded only where
-				-- they actually form one of its corners (firefox web content)
+				-- subsurfaces: clipped into the content box, rounded where
+				-- they form one of its corners
 				local surf_x = cx - (rg and rg.x or 0)
 				local surf_y = cy - (rg and rg.y or 0)
 				if view.subsurfaces then
 					for _, ss in ipairs(view.subsurfaces) do
 						if ss.mapped and ss.texture then
-						if not ss._logged then
-							ss._logged = true
-							if C.wlr_renderer_is_gles2(server.renderer) then
-								local attribs = ffi.new("struct wlr_gles2_texture_attribs")
-								C.wlr_gles2_texture_get_attribs(ss.texture.texture, attribs)
-								log.debug(
-									"subsurface draw %dx%d target=%d gl_tex=%u alpha=%s",
-									ss.texture.width,
-									ss.texture.height,
-									attribs.target,
-									attribs.tex,
-									tostring(attribs.has_alpha ~= 0)
-								)
-							else
-								log.debug("subsurface draw %dx%d", ss.texture.width, ss.texture.height)
-							end
-						end
 							local srect = {
 								x = surf_x + ss.subsurface.current.x,
 								y = surf_y + ss.subsurface.current.y,
@@ -416,9 +380,8 @@ function Output._on_frame(server, output_data)
 					)
 				end
 			end
-			-- popups (menus/tooltips): geometry is relative to the parent's
-			-- window geometry origin, so nested popups chain offsets upward
-			-- until the toplevel
+			-- popups (menus/tooltips): nested popups chain offsets up to the
+			-- toplevel's window geometry origin
 			if view.popups then
 				for _, entry in ipairs(view.popups) do
 					if entry.mapped and entry.texture then
@@ -444,38 +407,6 @@ function Output._on_frame(server, output_data)
 						local gy = oy + entry.popup.current.geometry.y
 						-- abs feeds pointer hit-testing next frame
 						entry.abs = { x = gx, y = gy, width = entry.texture.width, height = entry.texture.height }
-						drew_popup = true
-						table.insert(
-							frame_trace,
-							string.format(
-								"popup %s at %d,%d %dx%d",
-								entry.texture._destroyed and "DESTROYED" or "ok",
-								gx,
-								gy,
-								entry.texture.width,
-								entry.texture.height
-							)
-						)
-						if not entry._drew then
-							entry._drew = true
-							-- attribs probe is gles2-only; pixman textures abort it
-							if C.wlr_renderer_is_gles2(server.renderer) then
-								local attribs = ffi.new("struct wlr_gles2_texture_attribs")
-								C.wlr_gles2_texture_get_attribs(entry.texture.texture, attribs)
-								log.debug(
-									"popup draw at %d,%d %dx%d target=%d gl_tex=%u alpha=%s",
-									gx,
-									gy,
-									entry.texture.width,
-									entry.texture.height,
-									attribs.target,
-									attribs.tex,
-									tostring(attribs.has_alpha ~= 0)
-								)
-							else
-								log.debug("popup draw at %d,%d %dx%d", gx, gy, entry.texture.width, entry.texture.height)
-							end
-						end
 						server.custom_renderer:draw_texture(
 							pass,
 							entry.texture,
@@ -485,9 +416,8 @@ function Output._on_frame(server, output_data)
 							view.opacity or 1.0
 						)
 
-						-- popup subsurfaces (gecko paints menu content into
-						-- them): offsets are relative to the popup surface
-						-- origin, which our base draw anchors at gx,gy
+						-- popup subsurfaces (chromium draws menus into them);
+						-- offsets relative to our base draw anchor at gx,gy
 						for _, ss in ipairs(entry.subsurfaces or {}) do
 							if ss.mapped and ss.texture then
 								server.custom_renderer:draw_texture(
@@ -513,13 +443,6 @@ function Output._on_frame(server, output_data)
 
 	-- top/overlay layers above views
 	draw_layers(false)
-
-	-- dump the frame's draw order once a popup participated in it
-	if drew_popup then
-		for _, line in ipairs(frame_trace) do
-			log.debug("frame: %s", line)
-		end
-	end
 
 	-- submit render pass
 	if not server.custom_renderer:submit(pass) then

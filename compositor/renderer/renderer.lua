@@ -200,9 +200,7 @@ function Renderer:draw_solid_rounded(pass, box, output_width, output_height, rad
 end
 
 -- rounded textured rect. quad is what gets drawn, sdf_box is what gets
--- rounded - they differ when a stale buffer or clipped subsurface covers only
--- part of the content area. src is a sub-rect of the texture that maps 1:1
--- onto quad (caller guarantees no scaling), radii is { tl, tr, bl, br }
+-- rounded, src maps 1:1 onto quad; radii = { tl, tr, bl, br } in px
 function Renderer:draw_texture_rounded(pass, texture, quad, sdf_box, output_width, output_height, opacity, src, radii)
 	self:_ensure_gl()
 
