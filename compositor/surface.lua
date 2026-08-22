@@ -261,6 +261,41 @@ function Surface._on_new_popup(server, view, popup)
 					entry.texture:update_wlr_texture(tex)
 				end
 			end
+			-- state probe: compares what firefox vs gtk popups actually commit
+			-- (viewport/scale/subsurfaces are our invisible-menu suspects)
+			if not entry._probed then
+				entry._probed = true
+				local st = entry.surface.current
+				local src_box = ffi.new("struct wlr_fbox")
+				C.wlr_surface_get_buffer_source_box(entry.surface, src_box)
+				log.debug(
+					"popup %s buffer state: logical=%dx%d buffer=%dx%d scale=%d transform=%d "
+						.. "viewport(has_src=%s has_dst=%s src=%gx%g %gx%g dst=%dx%d) "
+						.. "srcbox=(%gx%g %gx%g) subsurfaces(above=%s below=%s) committed=%d",
+					tostring(popup),
+					st.width,
+					st.height,
+					st.buffer_width,
+					st.buffer_height,
+					st.scale,
+					st.transform,
+					tostring(st.viewport.has_src),
+					tostring(st.viewport.has_dst),
+					tonumber(st.viewport.src.x),
+					tonumber(st.viewport.src.y),
+					tonumber(st.viewport.src.width),
+					tonumber(st.viewport.src.height),
+					st.viewport.dst_width,
+					st.viewport.dst_height,
+					tonumber(src_box.x),
+					tonumber(src_box.y),
+					tonumber(src_box.width),
+					tonumber(src_box.height),
+					tostring(st.subsurfaces_above.next ~= st.subsurfaces_above),
+					tostring(st.subsurfaces_below.next ~= st.subsurfaces_below),
+					st.committed
+				)
+			end
 		end
 		-- clients do an initial null commit right after creating the popup;
 		-- that flips base.initialized and makes configuring legal. one shot
@@ -284,6 +319,70 @@ function Surface._on_new_popup(server, view, popup)
 			entry.texture:destroy()
 			entry.texture = nil
 		end
+	end)
+
+	-- gecko-style clients paint their popup content into subsurfaces of the
+	-- popup itself, keeping the base surface blank - track them like toplevel
+	-- subsurfaces or every firefox menu renders as nothing
+	entry.subsurfaces = {}
+	on(entry.surface.events.new_subsurface, function(data)
+		local sub = ffi.cast("struct wlr_subsurface *", data)
+		local ss = {
+			subsurface = sub,
+			surface = sub.surface,
+			texture = nil,
+			mapped = false,
+			cleanup = {},
+		}
+		table.insert(entry.subsurfaces, ss)
+
+		local function sson(signal, fn)
+			local l, d = ffi_help.make_listener_with_destroy(fn)
+			ffi_help.signal_add(signal, l)
+			table.insert(ss.cleanup, d)
+		end
+
+		sson(ss.surface.events.commit, function()
+			if C.wlr_surface_has_buffer(ss.surface) then
+				local tex = C.wlr_surface_get_texture(ss.surface)
+				if tex ~= nil then
+					if not ss.texture then
+						ss.texture = Texture.from_wlr_texture(tex)
+					else
+						ss.texture:update_wlr_texture(tex)
+					end
+				end
+			end
+		end)
+
+		sson(ss.surface.events.map, function()
+			ss.mapped = true
+		end)
+
+		sson(ss.surface.events.unmap, function()
+			ss.mapped = false
+			if ss.texture then
+				ss.texture:destroy()
+				ss.texture = nil
+			end
+		end)
+
+		sson(sub.events.destroy, function()
+			for i, s in ipairs(entry.subsurfaces) do
+				if s == ss then
+					table.remove(entry.subsurfaces, i)
+					break
+				end
+			end
+			if ss.texture then
+				ss.texture:destroy()
+				ss.texture = nil
+			end
+			for _, fn in ipairs(ss.cleanup) do
+				fn()
+			end
+			ss.cleanup = {}
+		end)
 	end)
 
 	on(popup.events.reposition, function()
@@ -340,6 +439,26 @@ function Surface._on_commit(server, view)
 		view.border_shown = true
 	end
 
+	-- window geometry within the buffer (excludes csd shadow margins).
+	-- processed before any early return: clients may commit a fresh geometry
+	-- on a bufferless commit and attach the matching buffer afterwards
+	local geo_bit = bit.band(view.xdg_surface.current.committed, 1) ~= 0
+	local g = view.xdg_surface.geometry
+	local sw, sh = surface.current.width, surface.current.height
+	if geo_bit then
+		if g.width > 0 and g.height > 0 then
+			view.render_geo = { x = g.x, y = g.y, width = g.width, height = g.height }
+		else
+			view.render_geo = nil
+		end
+	elseif view.render_geo and (view._last_sw ~= sw or view._last_sh ~= sh) then
+		-- the committed bitmask only marks commits that CHANGE geometry, so
+		-- persistence is managed here: drop it if the surface resizes without
+		-- a geometry update (stale clip otherwise)
+		view.render_geo = nil
+	end
+	view._last_sw, view._last_sh = sw, sh
+
 	-- temp debug: catch bufferless commits (client frame-thirst)
 	if not C.wlr_surface_has_buffer(surface) then
 		log.debug("commit %s: NO BUFFER (frame callback pending?)", view:get_title())
@@ -361,28 +480,10 @@ function Surface._on_commit(server, view)
 		view.texture_width = surface.current.width
 		view.texture_height = surface.current.height
 
-		-- window geometry within the buffer (excludes csd shadow margins).
-		-- the committed bitmask only marks commits that CHANGE geometry, so
-		-- persistence is managed here: drop it if the surface resizes without
-		-- a geometry update (stale clip otherwise)
-		local geo_bit = bit.band(view.xdg_surface.current.committed, 1) ~= 0
-		local g = view.xdg_surface.geometry
-		local sw, sh = surface.current.width, surface.current.height
-		if geo_bit then
-			if g.width > 0 and g.height > 0 then
-				view.render_geo = { x = g.x, y = g.y, width = g.width, height = g.height }
-			else
-				view.render_geo = nil
-			end
-		elseif view.render_geo and (view._last_sw ~= sw or view._last_sh ~= sh) then
-			view.render_geo = nil
-			log.debug("geometry stale after resize, ignoring: %s", view:get_title())
-		end
-		view._last_sw, view._last_sh = sw, sh
 		local rg = view.render_geo
 		log.debug("xdg commit %s: surf=%dx%d tex=%dx%d committed=%d geo=%s",
 			view:get_title(), surface.current.width, surface.current.height,
-			view.texture and view.texture.width or -1, view.texture and view.texture.height or -1,
+			view.texture.width, view.texture.height,
 			view.xdg_surface.current.committed,
 			rg and string.format("%d,%d %dx%d", rg.x, rg.y, rg.width, rg.height) or "none")
 	end

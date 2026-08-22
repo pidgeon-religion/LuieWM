@@ -88,6 +88,7 @@ struct wlr_surface *wlr_surface_from_resource(struct wl_resource *resource);
 void wlr_surface_send_frame_done(struct wlr_surface *surface, const struct timespec *when);
 void wlr_surface_send_enter(struct wlr_surface *surface, struct wlr_output *output);
 void wlr_surface_send_leave(struct wlr_surface *surface, struct wlr_output *output);
+void wlr_surface_get_buffer_source_box(struct wlr_surface *surface, struct wlr_fbox *box);
 
 // wlr/data_device.h
 struct wlr_data_device_manager {

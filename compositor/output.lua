@@ -484,6 +484,27 @@ function Output._on_frame(server, output_data)
 							output_height,
 							view.opacity or 1.0
 						)
+
+						-- popup subsurfaces (gecko paints menu content into
+						-- them): offsets are relative to the popup surface
+						-- origin, which our base draw anchors at gx,gy
+						for _, ss in ipairs(entry.subsurfaces or {}) do
+							if ss.mapped and ss.texture then
+								server.custom_renderer:draw_texture(
+									pass,
+									ss.texture,
+									{
+										x = gx + ss.subsurface.current.x,
+										y = gy + ss.subsurface.current.y,
+										width = ss.texture.width,
+										height = ss.texture.height,
+									},
+									output_width,
+									output_height,
+									view.opacity or 1.0
+								)
+							end
+						end
 					end
 				end
 			end
