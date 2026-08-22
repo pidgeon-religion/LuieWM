@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* ---- xkbcommon/xkbcommon.h ---- */
+// xkbcommon/xkbcommon.h
 struct xkb_context;
 struct xkb_keymap;
 struct xkb_state;
@@ -85,7 +85,7 @@ enum xkb_state_component xkb_state_update_key(struct xkb_state *state, xkb_keyco
 xkb_mod_mask_t xkb_state_serialize_mods(struct xkb_state *state, enum xkb_state_component components);
 xkb_led_mask_t xkb_state_serialize_leds(struct xkb_state *state, enum xkb_state_component components);
 
-/* xkbcommon-compose.h */
+// xkbcommon-compose.h
 struct xkb_compose_table;
 struct xkb_compose_state;
 

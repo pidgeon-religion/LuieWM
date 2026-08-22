@@ -10,6 +10,15 @@ local Surface = {}
 local xdg_new_surface_listener = nil
 local xdg_new_toplevel_listener = nil
 
+-- detach globals registered in setup; wlroots asserts on non-empty signal
+-- lists when the display goes away otherwise
+function Surface.teardown()
+	if xdg_new_toplevel_listener ~= nil then
+		ffi_help.signal_remove(xdg_new_toplevel_listener)
+		xdg_new_toplevel_listener = nil
+	end
+end
+
 function Surface.setup(server)
 	if server.xdg_shell == nil then
 		log.error("xdg_shell is nil!")
@@ -116,10 +125,8 @@ function Surface._setup_view_listeners(server, view)
 	table.insert(view._destroy_funcs, ack_configure_destroy)
 
 	-- new_popup listener (firefox menus, tooltips, dropdowns, etc.)
-	local new_popup_listener, new_popup_destroy = ffi_help.make_listener(function(data)
-		local popup = ffi.cast("struct wlr_xdg_popup *", data)
-		-- popups are handled by the renderer via layer surfaces or subsurfaces
-		log.debug("popup created for %s", view:get_title())
+	local new_popup_listener, new_popup_destroy = ffi_help.make_listener_with_destroy(function(data)
+		Surface._on_new_popup(server, view, ffi.cast("struct wlr_xdg_popup *", data))
 	end)
 	ffi_help.signal_add(view.xdg_surface.events.new_popup, new_popup_listener)
 	view.new_popup_listener = new_popup_listener
@@ -186,6 +193,134 @@ function Surface._setup_view_listeners(server, view)
 	end)
 	ffi_help.signal_add(view.wlr_surface.events.new_subsurface, new_subsurface_listener)
 	table.insert(view._destroy_funcs, new_subsurface_destroy)
+end
+
+-- fill in a popup's scheduled geometry and send its configure. only legal
+-- once the popup surface did its initial commit - before that wlroots'
+-- unconstrain helper would assert on schedule_configure
+function Surface._configure_popup(server, view, entry)
+	local popup = entry.popup
+	log.debug("popup %s configure: initialized=%s", tostring(popup), tostring(popup.base.initialized))
+	if not popup.base.initialized then
+		return
+	end
+
+	local rg = view.render_geo
+	local bw = view.border_width or 0
+	local surf_x = view.x + bw - (rg and rg.x or 0)
+	local surf_y = view.y + bw - (rg and rg.y or 0)
+
+	-- usable area of the output under the view
+	local out = ffi.new("struct wlr_box")
+	local out_wlr =
+		C.wlr_output_layout_output_at(server.output_layout, view.x + view.width / 2, view.y + view.height / 2)
+	if out_wlr ~= nil then
+		C.wlr_output_layout_get_box(server.output_layout, out_wlr, out)
+	else
+		C.wlr_output_layout_get_box(server.output_layout, nil, out)
+	end
+
+	local constraint = ffi.new(
+		"struct wlr_box",
+		{ x = out.x - surf_x, y = out.y - surf_y, width = out.width, height = out.height }
+	)
+	C.wlr_xdg_popup_unconstrain_from_box(popup, constraint)
+	C.wlr_xdg_surface_schedule_configure(popup.base)
+end
+
+-- track a new popup: texture lifecycle like subsurfaces plus the configure
+-- handshake clients block on. nested popups recurse through base.new_popup
+function Surface._on_new_popup(server, view, popup)
+	log.debug("popup %s created for %s", tostring(popup), view:get_title())
+
+	local entry = {
+		popup = popup,
+		view = view,
+		surface = popup.base.surface,
+		texture = nil,
+		mapped = false,
+		abs = { x = 0, y = 0, width = 0, height = 0 },
+		cleanup = {},
+	}
+	view.popups = view.popups or {}
+	table.insert(view.popups, entry)
+
+	local function on(signal, fn)
+		local listener, destroy = ffi_help.make_listener_with_destroy(fn)
+		ffi_help.signal_add(signal, listener)
+		table.insert(entry.cleanup, destroy)
+	end
+
+	on(entry.surface.events.commit, function()
+		if C.wlr_surface_has_buffer(entry.surface) then
+			local tex = C.wlr_surface_get_texture(entry.surface)
+			if tex ~= nil then
+				if not entry.texture then
+					entry.texture = Texture.from_wlr_texture(tex)
+				else
+					entry.texture:update_wlr_texture(tex)
+				end
+			end
+		end
+		-- clients do an initial null commit right after creating the popup;
+		-- that flips base.initialized and makes configuring legal. one shot
+		-- like labwc/dwl/river - reconfiguring on later commits makes clients
+		-- treat it as a reposition
+		if not entry.configured_once and popup.base.initialized then
+			entry.configured_once = true
+			Surface._configure_popup(server, view, entry)
+		end
+	end)
+
+	on(entry.surface.events.map, function()
+		entry.mapped = true
+		log.debug("popup %s mapped %dx%d", tostring(popup), popup.current.geometry.width, popup.current.geometry.height)
+	end)
+
+	on(entry.surface.events.unmap, function()
+		entry.mapped = false
+		log.debug("popup %s unmapped", tostring(popup))
+		if entry.texture then
+			entry.texture:destroy()
+			entry.texture = nil
+		end
+	end)
+
+	on(popup.events.reposition, function()
+		Surface._configure_popup(server, view, entry)
+	end)
+
+	on(popup.base.events.new_popup, function(data)
+		Surface._on_new_popup(server, view, ffi.cast("struct wlr_xdg_popup *", data))
+	end)
+
+	-- wlroots asserts every signal list is empty before freeing the popup
+	-- struct; its own events.destroy fires right before that assert, so this
+	-- is where everything must detach. the base surface can also go first
+	-- depending on who initiates teardown, hence the idempotent double hook
+	local function cleanup()
+		if entry.dead then
+			return
+		end
+		entry.dead = true
+		log.debug("popup %s cleanup", tostring(popup))
+		for i, e in ipairs(view.popups or {}) do
+			if e == entry then
+				table.remove(view.popups, i)
+				break
+			end
+		end
+		if entry.texture then
+			entry.texture:destroy()
+			entry.texture = nil
+		end
+		for _, fn in ipairs(entry.cleanup) do
+			fn()
+		end
+		entry.cleanup = {}
+	end
+	on(popup.events.destroy, cleanup)
+	on(popup.base.events.destroy, cleanup)
 end
 
 function Surface._on_commit(server, view)
@@ -339,6 +474,7 @@ function Surface._on_destroy(server, view)
 end
 
 function Surface._on_request_fullscreen(server, view)
+	log.debug("request_fullscreen from %s (currently %s)", view:get_title(), tostring(view.fullscreen))
 	view.fullscreen = not view.fullscreen
 	if view.fullscreen then
 		local layout = server.output_layout

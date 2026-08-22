@@ -1,13 +1,13 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* ---- wayland-util.h ---- */
+// wayland-util.h
 struct wl_list {
     struct wl_list *prev;
     struct wl_list *next;
 };
 
-/* ---- wayland-server-core.h ---- */
+// wayland-server-core.h
 struct wl_client;
 struct wl_display;
 struct wl_global;
@@ -29,18 +29,18 @@ struct wl_signal {
     struct wl_list listener_list;
 };
 
-/* wl_list functions */
+// wl_list functions
 void wl_list_init(struct wl_list *list);
-/* wl_list functions - these are real symbols in libwayland-server */
+// wl_list functions - these are real symbols in libwayland-server
 void wl_list_init(struct wl_list *list);
 void wl_list_insert(struct wl_list *list, struct wl_list *elm);
 void wl_list_remove(struct wl_list *elm);
 int wl_list_empty(const struct wl_list *list);
 
-/* wl_signal_init and wl_signal_add are static inline in the header,
-   so we implement them in util/ffi_helpers.lua instead */
+// wl_signal_init and wl_signal_add are static inline in the header,
+// so we implement them in util/ffi_helpers.lua instead
 
-/* wl_display functions */
+// wl_display functions
 struct wl_display *wl_display_create(void);
 void wl_display_destroy(struct wl_display *display);
 void wl_display_run(struct wl_display *display);
@@ -51,7 +51,7 @@ uint32_t wl_display_next_serial(struct wl_display *display);
 void wl_display_flush_clients(struct wl_display *display);
 struct wl_event_loop *wl_display_get_event_loop(struct wl_display *display);
 
-/* wl_event_loop functions */
+// wl_event_loop functions
 struct wl_event_loop *wl_event_loop_create(void);
 void wl_event_loop_destroy(struct wl_event_loop *loop);
 int wl_event_loop_dispatch(struct wl_event_loop *loop, int timeout);
@@ -63,10 +63,10 @@ struct wl_event_source *wl_event_loop_add_timer(struct wl_event_loop *loop,
     wl_notify_func_t func, void *data);
 void wl_event_source_timer_update(struct wl_event_source *source, int ms_delay);
 
-/* wl_global functions */
+// wl_global functions
 void wl_global_destroy(struct wl_global *global);
 
-/* wl_fixed_t */
+// wl_fixed_t
 typedef int32_t wl_fixed_t;
 ]]
 

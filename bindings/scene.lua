@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* ---- wlr/scene.h ---- */
+// wlr/scene.h
 typedef bool (*wlr_scene_buffer_point_accepts_input_func_t)(
     struct wlr_scene_buffer *buffer, double *sx, double *sy);
 typedef void (*wlr_scene_buffer_iterator_func_t)(
@@ -83,11 +83,11 @@ struct wlr_scene_output_layout {
     struct wlr_scene *scene;
 };
 
-/* Scene functions */
+// Scene functions
 struct wlr_scene *wlr_scene_create(void);
 struct wlr_scene_tree *wlr_scene_tree_create(struct wlr_scene_tree *parent);
 
-/* Node functions */
+// Node functions
 void wlr_scene_node_destroy(struct wlr_scene_node *node);
 void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled);
 void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y);
@@ -97,35 +97,35 @@ void wlr_scene_node_reparent(struct wlr_scene_node *node, struct wlr_scene_tree 
 bool wlr_scene_node_coords(struct wlr_scene_node *node, int *lx, int *ly);
 struct wlr_scene_node *wlr_scene_node_at(struct wlr_scene_node *node, double lx, double ly, double *nx, double *ny);
 
-/* Scene rect */
+// Scene rect
 struct wlr_scene_rect *wlr_scene_rect_create(struct wlr_scene_tree *parent, int width, int height, const float color[4]);
 void wlr_scene_rect_set_size(struct wlr_scene_rect *rect, int width, int height);
 void wlr_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[4]);
 
-/* Scene surface */
+// Scene surface
 struct wlr_scene_surface *wlr_scene_surface_create(struct wlr_scene_tree *parent, struct wlr_surface *surface);
 struct wlr_scene_surface *wlr_scene_surface_try_from_buffer(struct wlr_scene_buffer *scene_buffer);
 
-/* Scene xdg surface */
+// Scene xdg surface
 struct wlr_scene_tree *wlr_scene_xdg_surface_create(struct wlr_scene_tree *parent, struct wlr_xdg_surface *xdg_surface);
 
-/* Scene output */
+// Scene output
 struct wlr_scene_output *wlr_scene_output_create(struct wlr_scene *scene, struct wlr_output *output);
 void wlr_scene_output_destroy(struct wlr_scene_output *scene_output);
 bool wlr_scene_output_commit(struct wlr_scene_output *scene_output, const void *options);
 struct wlr_scene_output *wlr_scene_get_scene_output(struct wlr_scene *scene, struct wlr_output *output);
 
-/* Scene output layout */
+// Scene output layout
 struct wlr_scene_output_layout *wlr_scene_attach_output_layout(struct wlr_scene *scene, struct wlr_output_layout *output_layout);
 
-/* Scene layer surface */
+// Scene layer surface
 struct wlr_scene_layer_surface_v1 *wlr_scene_layer_surface_v1_create(
     struct wlr_scene_tree *parent, struct wlr_layer_surface_v1 *layer_surface);
 void wlr_scene_layer_surface_v1_configure(
     struct wlr_scene_layer_surface_v1 *scene_layer_surface,
     const struct wlr_box *full_area, struct wlr_box *usable_area);
 
-/* Scene subsurface tree */
+// Scene subsurface tree
 struct wlr_scene_tree *wlr_scene_subsurface_tree_create(struct wlr_scene_tree *parent, struct wlr_surface *surface);
 ]]
 

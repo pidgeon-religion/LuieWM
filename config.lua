@@ -12,7 +12,8 @@ end
 
 Config.defaults = {
 	gap = 8,
-	border_width = 4,
+	border_width = 5,
+	corner_radius = 25, -- 0 disables rounding (plain strip borders)
 	focus_color = hex_to_rgba("#007acc"),
 	unfocus_color = hex_to_rgba("#141414"),
 	background_color = { 0.1, 0.1, 0.12, 1.0 },

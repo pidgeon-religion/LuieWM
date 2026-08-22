@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* pixman region (24 bytes on x86_64: box32 + data ptr) */
+// pixman region (24 bytes on x86_64: box32 + data ptr)
 typedef struct { int32_t x1, y1, x2, y2; } pixman_box32_t;
 typedef struct pixman_region32_data pixman_region32_data_t;
 typedef struct { pixman_box32_t extents; pixman_region32_data_t *data; } pixman_region32_t;
@@ -9,7 +9,7 @@ void pixman_region32_init(pixman_region32_t *region);
 void pixman_region32_init_rect(pixman_region32_t *region, int x, int y, unsigned int width, unsigned int height);
 void pixman_region32_fini(pixman_region32_t *region);
 
-/* ---- wlr/backend.h ---- */
+// wlr/backend.h
 struct wlr_backend {
     const void *impl;
     uint32_t buffer_caps;
@@ -26,7 +26,7 @@ bool wlr_backend_start(struct wlr_backend *backend);
 void wlr_backend_destroy(struct wlr_backend *backend);
 int wlr_backend_get_drm_fd(struct wlr_backend *backend);
 
-/* ---- wlr/output.h ---- */
+// wlr/output.h
 enum wlr_output_mode_aspect_ratio {
     WLR_OUTPUT_MODE_ASPECT_RATIO_NONE,
     WLR_OUTPUT_MODE_ASPECT_RATIO_4_3,
@@ -145,7 +145,7 @@ bool wlr_output_commit_state(struct wlr_output *output, const struct wlr_output_
 void wlr_output_schedule_frame(struct wlr_output *output);
 bool wlr_output_init_render(struct wlr_output *output, void *allocator, struct wlr_renderer *renderer);
 
-/* ---- wlr/render/allocator.h ---- */
+// wlr/render/allocator.h
 void *wlr_allocator_autocreate(struct wlr_backend *backend, struct wlr_renderer *renderer);
 
 void wlr_output_state_init(struct wlr_output_state *state);
@@ -157,7 +157,7 @@ void wlr_output_state_set_scale(struct wlr_output_state *state, float scale);
 void wlr_output_state_set_transform(struct wlr_output_state *state, uint32_t transform);
 void wlr_output_state_set_adaptive_sync_enabled(struct wlr_output_state *state, bool enabled);
 
-/* ---- wlr/output_layout.h ---- */
+// wlr/output_layout.h
 struct wlr_output_layout {
     struct wl_list outputs;
     struct wl_display *display;
@@ -185,11 +185,11 @@ void wlr_output_layout_remove(struct wlr_output_layout *layout, struct wlr_outpu
 void wlr_output_layout_get_box(struct wlr_output_layout *layout, struct wlr_output *reference, struct wlr_box *dest_box);
 struct wlr_output *wlr_output_layout_output_at(struct wlr_output_layout *layout, double lx, double ly);
 
-/* ---- wlr/types/wlr_xdg_output_v1.h ---- */
+// wlr/types/wlr_xdg_output_v1.h
 struct wlr_xdg_output_manager_v1 *wlr_xdg_output_manager_v1_create(
     struct wl_display *display, struct wlr_output_layout *layout);
 
-/* ---- wlr/util/box.h ---- */
+// wlr/util/box.h
 struct wlr_box {
     int x, y;
     int width, height;
@@ -199,6 +199,8 @@ struct wlr_fbox {
     double x, y;
     double width, height;
 };
+
+void wlr_log_init(int verbosity, void *callback);
 ]]
 
 return {}

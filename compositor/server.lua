@@ -43,6 +43,10 @@ end
 function Server:init()
 	log.info("initializing LuieWM...")
 
+	-- mirror our verbosity into wlroots' logger (WLR_DEBUG=3, info=2);
+	-- without this wlroots stays at error-only and ignores WLR_LOG_LEVEL
+	C.wlr_log_init(log.level == "debug" and 3 or 2, nil)
+
 	log.debug("creating wl_display...")
 	self.wl_display = C.wl_display_create()
 	if self.wl_display == nil then
@@ -167,6 +171,27 @@ function Server:init()
 	end)
 	ffi_help.signal_add(self.seat.events.request_set_cursor, request_cursor_listener)
 
+	-- cursor-shape-v1: clients name a shape, we render it from our theme so
+	-- cursors stay consistent (gtk4 apps use this instead of set_cursor)
+	self.cursor_shape_mgr = C.wlr_cursor_shape_manager_v1_create(self.wl_display, 1)
+	if self.cursor_shape_mgr == nil then
+		log.error("failed to create cursor_shape manager")
+	else
+		local request_set_shape_listener = ffi_help.make_listener(function(data)
+			local event = ffi.cast("struct wlr_cursor_shape_manager_v1_request_set_shape_event *", data)
+			if event.device_type ~= C.WLR_CURSOR_SHAPE_MANAGER_V1_DEVICE_TYPE_POINTER then
+				return
+			end
+			if event.seat_client ~= self.seat.pointer_state.focused_client then
+				return
+			end
+			log.debug("request_set_shape %s", ffi.string(C.wlr_cursor_shape_v1_name(event.shape)))
+			C.wlr_cursor_set_xcursor(self.cursor, self.cursor_mgr, C.wlr_cursor_shape_v1_name(event.shape))
+		end)
+		ffi_help.signal_add(self.cursor_shape_mgr.events.request_set_shape, request_set_shape_listener)
+	end
+	log.debug("cursor_shape OK")
+
 	local request_selection_listener = ffi_help.make_listener(function(data)
 		log.debug("seat request_set_selection")
 	end)
@@ -282,6 +307,10 @@ function Server:run()
 
 	-- run event loop
 	C.wl_display_run(self.wl_display)
+
+	-- detach globals that have no owner to destroy them (wlroots asserts on
+	-- non-empty signal lists during display teardown otherwise)
+	require("compositor.surface").teardown()
 
 	-- cleanup
 	C.wl_display_destroy_clients(self.wl_display)

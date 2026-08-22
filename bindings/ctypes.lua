@@ -16,20 +16,21 @@ end
 preload_lib("libwayland-server.so")
 preload_lib("libwlroots-0.20.so")
 preload_lib("libxkbcommon.so")
+preload_lib("libGLESv2.so")
 
 pcall(ffi.cdef, [[
-    /* Basic types */
+    // Basic types
     typedef int pid_t;
     typedef unsigned int useconds_t;
 
-    /* Time */
+    // Time
     struct timespec {
         long tv_sec;
         long tv_nsec;
     };
     int clock_gettime(int clockid, struct timespec *tp);
 
-    /* Process */
+    // Process
     int setenv(const char *name, const char *value, int overwrite);
     char *getenv(const char *name);
     pid_t fork(void);

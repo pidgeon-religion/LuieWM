@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* ---- wlr/input_device.h ---- */
+// wlr/input_device.h
 enum wlr_input_device_type {
     WLR_INPUT_DEVICE_KEYBOARD,
     WLR_INPUT_DEVICE_POINTER,
@@ -18,7 +18,7 @@ struct wlr_input_device {
     void *data;
 };
 
-/* ---- wlr/keyboard.h ---- */
+// wlr/keyboard.h
 enum wlr_keyboard_led {
     WLR_LED_NUM_LOCK = 1 << 0,
     WLR_LED_CAPS_LOCK = 1 << 1,
@@ -74,10 +74,10 @@ struct wlr_keyboard_key_event {
     uint32_t time_msec;
     uint32_t keycode;
     bool update_state;
-    uint32_t state; /* wl_keyboard_key_state */
+    uint32_t state; // wl_keyboard_key_state
 };
 
-/* ---- wlr/pointer.h ---- */
+// wlr/pointer.h
 struct wlr_pointer {
     struct wlr_input_device base;
     const void *impl;
@@ -98,7 +98,7 @@ struct wlr_pointer_button_event {
     struct wlr_pointer *pointer;
     uint32_t time_msec;
     uint32_t button;
-    uint32_t state; /* wl_pointer_button_state */
+    uint32_t state; // wl_pointer_button_state
 };
 
 struct wlr_pointer_axis_event {
@@ -111,7 +111,7 @@ struct wlr_pointer_axis_event {
     int32_t delta_discrete;
 };
 
-/* ---- wlr/seat.h ---- */
+// wlr/seat.h
 struct wlr_seat_pointer_state {
     struct wlr_seat *seat;
     struct wlr_surface *focused_surface;
@@ -218,7 +218,7 @@ void wlr_seat_keyboard_notify_key(struct wlr_seat *seat, uint32_t time_msec, uin
 void wlr_seat_keyboard_notify_modifiers(struct wlr_seat *seat, const struct wlr_keyboard_modifiers *modifiers);
 void wlr_seat_keyboard_notify_enter(struct wlr_seat *seat, struct wlr_surface *surface, uint32_t *keycodes, size_t num_keycodes, struct wlr_keyboard_modifiers *modifiers);
 
-/* ---- wlr/cursor.h ---- */
+// wlr/cursor.h
 struct wlr_cursor {
     void *state;
     double x, y;
@@ -259,7 +259,7 @@ void wlr_cursor_warp_absolute(struct wlr_cursor *cursor, struct wlr_input_device
 void wlr_cursor_set_xcursor(struct wlr_cursor *cursor, struct wlr_xcursor_manager *manager, const char *name);
 void wlr_cursor_set_surface(struct wlr_cursor *cursor, struct wlr_surface *surface, int32_t hotspot_x, int32_t hotspot_y);
 
-/* Cursor motion event structs (emitted by wlr_cursor signals) */
+// Cursor motion event structs (emitted by wlr_cursor signals)
 struct wlr_cursor_motion_event {
     struct wlr_pointer *pointer;
     uint32_t time_msec;
@@ -273,7 +273,7 @@ struct wlr_cursor_motion_absolute_event {
     double x, y;
 };
 
-/* ---- wlr/xcursor_manager.h ---- */
+// wlr/xcursor_manager.h
 struct wlr_xcursor_manager {
     char *name;
     uint32_t size;
@@ -284,7 +284,33 @@ struct wlr_xcursor_manager *wlr_xcursor_manager_create(const char *name, uint32_
 void wlr_xcursor_manager_destroy(struct wlr_xcursor_manager *manager);
 bool wlr_xcursor_manager_load(struct wlr_xcursor_manager *manager, float scale);
 
-/* ---- wlr/keyboard_group.h ---- */
+// wlr/cursor_shape_v1.h
+struct wlr_cursor_shape_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal request_set_shape;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+};
+
+enum wlr_cursor_shape_manager_v1_device_type {
+    WLR_CURSOR_SHAPE_MANAGER_V1_DEVICE_TYPE_POINTER = 0,
+    WLR_CURSOR_SHAPE_MANAGER_V1_DEVICE_TYPE_TABLET_TOOL = 1,
+};
+
+struct wlr_cursor_shape_manager_v1_request_set_shape_event {
+    struct wlr_seat_client *seat_client;
+    uint32_t device_type;
+    void *tablet_tool; // NULL unless device_type is TABLET_TOOL
+    uint32_t serial;
+    uint32_t shape; // enum wp_cursor_shape_device_v1_shape
+};
+
+struct wlr_cursor_shape_manager_v1 *wlr_cursor_shape_manager_v1_create(struct wl_display *display, uint32_t version);
+const char *wlr_cursor_shape_v1_name(uint32_t shape);
+
+// wlr/keyboard_group.h
 struct wlr_keyboard_group {
     struct wlr_keyboard keyboard;
     struct wl_list devices;
@@ -296,7 +322,7 @@ struct wlr_keyboard_group {
 struct wlr_keyboard_group *wlr_keyboard_group_create(void);
 void wlr_keyboard_group_destroy(struct wlr_keyboard_group *group);
 
-/* ---- wlr_keyboard helpers ---- */
+// wlr_keyboard helpers
 struct wlr_keyboard *wlr_keyboard_from_input_device(struct wlr_input_device *device);
 bool wlr_keyboard_set_keymap(struct wlr_keyboard *kb, struct xkb_keymap *keymap);
 ]]

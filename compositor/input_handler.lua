@@ -23,12 +23,23 @@ local function get_time_msec()
 	return tonumber(ts[0].tv_sec) * 1000 + math.floor(tonumber(ts[0].tv_nsec) / 1000000)
 end
 
--- hit-test views: check if cursor is within view geometry (including border)
+-- hit-test views: check if cursor is within view geometry (including border).
+-- returns surface, sx, sy, view, popup_entry (nil unless a popup won)
 local function get_view_at(server, lx, ly)
 	-- check views in reverse order (top-most first); view box includes borders
 	for i = #server.views, 1, -1 do
 		local view = server.views[i]
 		if view.mapped and view.visible_on_tag then
+			-- popups stack above their toplevel, so they win the hit test
+			for j = #(view.popups or {}), 1, -1 do
+				local entry = view.popups[j]
+				local a = entry.abs
+				if entry.mapped and entry.texture and a.width > 0 then
+					if lx >= a.x and lx < a.x + a.width and ly >= a.y and ly < a.y + a.height then
+						return entry.surface, lx - a.x, ly - a.y, view, entry
+					end
+				end
+			end
 			if lx >= view.x and lx < view.x + view.width and ly >= view.y and ly < view.y + view.height then
 				local bw = view.border_width or 0
 				-- pointer events are surface-local: origin is the buffer
@@ -256,9 +267,11 @@ function Input._on_cursor_button(server, event)
 	local msec = get_time_msec()
 	C.wlr_seat_pointer_notify_button(server.seat, msec, event.button, event.state)
 
-	if event.state == C.WL_POINTER_BUTTON_STATE_PRESSED then
-		local surface, sx, sy, view = get_view_at(server, server.cursor.x, server.cursor.y)
-		if surface ~= nil and view then
+	if event.state == C.WL_KEYBOARD_KEY_STATE_PRESSED then
+		local _, _, _, view, popup_entry = get_view_at(server, server.cursor.x, server.cursor.y)
+		-- presses over popups must not yank pointer focus back to the
+		-- toplevel - that closes the menu the click was meant for
+		if view ~= nil and not popup_entry then
 			server:focus_view(view)
 		end
 	end

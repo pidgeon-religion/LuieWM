@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 
 ffi.cdef[[
-/* ---- wlr/render/wlr_renderer.h ---- */
+// wlr/render/wlr_renderer.h
 struct wlr_renderer {
     uint32_t render_buffer_caps;
     uint32_t color_encodings;
@@ -22,7 +22,7 @@ bool wlr_renderer_init_wl_shm(struct wlr_renderer *renderer, struct wl_display *
 int wlr_renderer_get_drm_fd(struct wlr_renderer *renderer);
 void wlr_renderer_destroy(struct wlr_renderer *renderer);
 
-/* ---- wlr/render/wlr_texture.h ---- */
+// wlr/render/wlr_texture.h
 struct wlr_texture {
     const void *impl;
     uint32_t width, height;
@@ -32,7 +32,7 @@ struct wlr_texture {
 void wlr_texture_destroy(struct wlr_texture *texture);
 struct wlr_texture *wlr_texture_from_buffer(struct wlr_renderer *renderer, void *buffer);
 
-/* ---- wlr/render/gles2.h ---- */
+// wlr/render/gles2.h
 struct wlr_gles2_texture_attribs {
     uint32_t target;
     uint32_t tex;
@@ -41,8 +41,9 @@ struct wlr_gles2_texture_attribs {
 
 bool wlr_renderer_is_gles2(struct wlr_renderer *renderer);
 bool wlr_gles2_renderer_check_ext(struct wlr_renderer *renderer, const char *ext);
+void wlr_gles2_texture_get_attribs(struct wlr_texture *texture, struct wlr_gles2_texture_attribs *attribs);
 
-/* ---- wlr/render/pass.h (render pass API, wlroots 0.18+) ---- */
+// wlr/render/pass.h (render pass API, wlroots 0.18+)
 struct wlr_render_pass;
 
 struct wlr_buffer_pass_options {
@@ -56,7 +57,7 @@ struct wlr_render_pass *wlr_renderer_begin_buffer_pass(struct wlr_renderer *rend
 struct wlr_render_pass *wlr_output_begin_render_pass(struct wlr_output *output, const struct wlr_output_state *state, const struct wlr_buffer_pass_options *render_options);
 bool wlr_render_pass_submit(struct wlr_render_pass *pass);
 
-/* color value, rgb premultiplied by alpha */
+// color value, rgb premultiplied by alpha
 struct wlr_render_color {
     float r, g, b, a;
 };
@@ -99,7 +100,7 @@ struct wlr_render_texture_options {
 void wlr_render_pass_add_rect(struct wlr_render_pass *pass, const struct wlr_render_rect_options *options);
 void wlr_render_pass_add_texture(struct wlr_render_pass *pass, const struct wlr_render_texture_options *options);
 
-/* ---- wlr/output.h - modern API ---- */
+// wlr/output.h - modern API
 struct wlr_output_event_request_state {
     struct wlr_output *output;
     const struct wlr_output_state *state;
@@ -116,7 +117,7 @@ void wlr_output_state_set_scale(void *state, float scale);
 void wlr_output_state_set_transform(void *state, uint32_t transform);
 void wlr_output_state_set_adaptive_sync_enabled(void *state, bool enabled);
 
-/* ---- wlr/types/wlr_buffer.h ---- */
+// wlr/types/wlr_buffer.h
 struct wlr_buffer {
     struct wlr_renderer *renderer;
     uint32_t width, height;
@@ -130,11 +131,11 @@ struct wlr_buffer {
 struct wlr_buffer *wlr_buffer_lock(struct wlr_buffer *buffer);
 void wlr_buffer_unlock(struct wlr_buffer *buffer);
 
-/* wlr_surface is defined in protocols.lua - we just need the texture functions */
+// wlr_surface is defined in protocols.lua - we just need the texture functions
 struct wlr_texture *wlr_surface_get_texture(struct wlr_surface *surface);
 bool wlr_surface_has_buffer(struct wlr_surface *surface);
 
-/* ---- wlr/types/wlr_seat.h ---- */
+// wlr/types/wlr_seat.h
 struct wlr_seat_client;
 
 struct wlr_seat_pointer_request_set_cursor_event {

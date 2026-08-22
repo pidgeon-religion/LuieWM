@@ -169,10 +169,8 @@ function View:focus()
         log.debug("focus: no keyboard for %s", self:get_title())
     end
 
-    -- pointer focus (using view geometry directly)
-    local bw = self.border_width or 4
-    C.wlr_seat_pointer_notify_enter(seat, focused_surface,
-        -bw, -bw)
+    -- pointer focus is deliberately left alone here: motion handling owns it,
+    -- and re-entering the toplevel mid-interaction would close popups
 end
 
 function View:unfocus()
