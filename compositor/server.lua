@@ -102,6 +102,10 @@ function Server:init()
 	self.data_device_manager = C.wlr_data_device_manager_create(self.wl_display)
 	log.debug("data_device_manager OK")
 
+	-- wl_primary_selection: middle-click paste
+	C.wlr_primary_selection_v1_device_manager_create(self.wl_display)
+	log.debug("primary_selection_manager OK")
+
 	log.debug("wlr_output_layout_create...")
 	self.output_layout = C.wlr_output_layout_create(self.wl_display)
 	log.debug("output_layout OK")
@@ -192,10 +196,35 @@ function Server:init()
 	end
 	log.debug("cursor_shape OK")
 
+	-- selection plumbing: wlroots' data-device implements the wire protocol;
+	-- the compositor only relays seat-level requests. XWayland clipboard
+	-- rides the same path via the xwm bridge.
 	local request_selection_listener = ffi_help.make_listener(function(data)
-		log.debug("seat request_set_selection")
+		local event = ffi.cast("struct wlr_seat_request_set_selection_event *", data)
+		log.debug("seat request_set_selection source=%s serial=%d", tostring(event.source ~= nil), event.serial)
+		C.wlr_seat_set_selection(self.seat, event.source, event.serial)
 	end)
 	ffi_help.signal_add(self.seat.events.request_set_selection, request_selection_listener)
+
+	local request_primary_listener = ffi_help.make_listener(function(data)
+		local event = ffi.cast("struct wlr_seat_request_set_primary_selection_event *", data)
+		log.debug(
+			"seat request_set_primary_selection source=%s serial=%d",
+			tostring(event.source ~= nil),
+			event.serial
+		)
+		C.wlr_seat_set_primary_selection(self.seat, event.source, event.serial)
+	end)
+	ffi_help.signal_add(self.seat.events.request_set_primary_selection, request_primary_listener)
+
+	-- minimal DnD: acknowledge drags so data transfer works; the drag icon
+	-- surface is not rendered yet (roadmap 1.4 follow-up)
+	local request_start_drag_listener = ffi_help.make_listener(function(data)
+		local event = ffi.cast("struct wlr_seat_request_start_drag_event *", data)
+		log.debug("seat request_start_drag serial=%d", event.serial)
+		C.wlr_seat_start_drag(self.seat, event.drag, event.serial)
+	end)
+	ffi_help.signal_add(self.seat.events.request_start_drag, request_start_drag_listener)
 	log.debug("seat listeners OK")
 
 	log.debug("creating protocol managers...")

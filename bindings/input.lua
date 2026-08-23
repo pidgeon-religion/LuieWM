@@ -206,8 +206,32 @@ struct wlr_seat *wlr_seat_create(struct wl_display *display, const char *name);
 void wlr_seat_destroy(struct wlr_seat *seat);
 void wlr_seat_set_capabilities(struct wlr_seat *seat, uint32_t capabilities);
 void wlr_seat_set_name(struct wlr_seat *seat, const char *name);
-void wlr_seat_set_keyboard(struct wlr_seat *seat, struct wlr_keyboard *keyboard);
+void wlr_seat_set_keyboard(struct wlr_seat *keyboard, struct wlr_keyboard *device);
 struct wlr_keyboard *wlr_seat_get_keyboard(struct wlr_seat *seat);
+
+// wlr/types/wlr_data_device.h + wlr/primary_selection.h (selection plumbing)
+struct wlr_data_source;
+struct wlr_primary_selection_source;
+struct wlr_drag;
+
+struct wlr_seat_request_set_selection_event {
+    struct wlr_data_source *source;
+    uint32_t serial;
+};
+
+struct wlr_seat_request_set_primary_selection_event {
+    struct wlr_primary_selection_source *source;
+    uint32_t serial;
+};
+
+struct wlr_seat_request_start_drag_event {
+    struct wlr_drag *drag;
+    uint32_t serial;
+};
+
+void wlr_seat_set_selection(struct wlr_seat *seat, struct wlr_data_source *source, uint32_t serial);
+void wlr_seat_set_primary_selection(struct wlr_seat *seat, struct wlr_primary_selection_source *source, uint32_t serial);
+bool wlr_seat_start_drag(struct wlr_seat *seat, struct wlr_drag *drag, uint32_t serial);
 void wlr_seat_pointer_notify_enter(struct wlr_seat *seat, struct wlr_surface *surface, double sx, double sy);
 void wlr_seat_pointer_notify_clear_focus(struct wlr_seat *seat);
 void wlr_seat_pointer_notify_motion(struct wlr_seat *seat, uint32_t time_msec, double sx, double sy);
