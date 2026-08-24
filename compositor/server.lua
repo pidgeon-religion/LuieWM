@@ -208,11 +208,7 @@ function Server:init()
 
 	local request_primary_listener = ffi_help.make_listener(function(data)
 		local event = ffi.cast("struct wlr_seat_request_set_primary_selection_event *", data)
-		log.debug(
-			"seat request_set_primary_selection source=%s serial=%d",
-			tostring(event.source ~= nil),
-			event.serial
-		)
+		log.debug("seat request_set_primary_selection source=%s serial=%d", tostring(event.source ~= nil), event.serial)
 		C.wlr_seat_set_primary_selection(self.seat, event.source, event.serial)
 	end)
 	ffi_help.signal_add(self.seat.events.request_set_primary_selection, request_primary_listener)

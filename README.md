@@ -19,7 +19,7 @@ Problems
 
 Nested wayland (named above)
 constant crashes/freezes
-No xwayland, screencopy etc
+No screencopy etc
 
 bro i hate readmes so damn much
 
